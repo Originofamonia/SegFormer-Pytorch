@@ -1,3 +1,7 @@
+"""
+follow torchrun tutorial
+"""
+
 import os
 import re
 import torch
@@ -15,7 +19,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, RandomSampler
 from torch import distributed as dist
-# from timm.models import create_model
+from torch.distributed import init_process_group, destroy_process_group
 from models import *
 from datasets import *
 from utils.augmentations import get_train_augmentation, get_val_augmentation
@@ -28,7 +32,7 @@ from engine import train_one_epoch, evaluate
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 
-def get_argparser():
+def get_args():
     parser = argparse.ArgumentParser('Pytorch SegFormer Models training and evaluation script', add_help=False)
 
     # Datset Options
@@ -45,12 +49,12 @@ def get_argparser():
     parser.add_argument("--model", type=str, default='make_SegFormerB1', help='model name')
 
     # Train Options
-    parser.add_argument("--amp", type=bool, default=True, help='auto mixture precision') # There may be some problems when loading weights, such as: ComplexFloat
+    parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision') # There may be some problems when loading weights, such as: ComplexFloat
     parser.add_argument("--epochs", type=int, default=2, help='total training epochs')
     parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
     parser.add_argument("--num_workers", type=int, default=3,
                         help='num_workers, set it equal 0 when run programs in win platform')
-    parser.add_argument("--DDP", type=bool, default=True)
+    parser.add_argument("--DDP", type=bool, default=False)
     parser.add_argument("--train_print_freq", type=int, default=50)
     parser.add_argument("--val_print_freq", type=int, default=50)
 
@@ -80,13 +84,77 @@ def get_argparser():
     return parser
 
 
+def ddp_setup():
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+
+class Trainer:
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        train_data: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        save_every: int,
+        snapshot_path: str,
+    ) -> None:
+        self.gpu_id = int(os.environ["LOCAL_RANK"])
+        self.model = model.to(self.gpu_id)
+        self.train_data = train_data
+        self.optimizer = optimizer
+        self.save_every = save_every
+        self.epochs_run = 0
+        self.snapshot_path = snapshot_path
+        if os.path.exists(snapshot_path):
+            print("Loading snapshot")
+            self._load_snapshot(snapshot_path)
+
+        self.model = DDP(self.model, device_ids=[self.gpu_id])
+
+    def _load_snapshot(self, snapshot_path):
+        loc = f"cuda:{self.gpu_id}"
+        snapshot = torch.load(snapshot_path, map_location=loc)
+        self.model.load_state_dict(snapshot["MODEL_STATE"])
+        self.epochs_run = snapshot["EPOCHS_RUN"]
+        print(f"Resuming training from snapshot at Epoch {self.epochs_run}")
+
+    def _run_batch(self, source, targets):
+        self.optimizer.zero_grad()
+        output = self.model(source)
+        loss = F.cross_entropy(output, targets)
+        loss.backward()
+        self.optimizer.step()
+
+    def _run_epoch(self, epoch):
+        b_sz = len(next(iter(self.train_data))[0])
+        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
+        self.train_data.sampler.set_epoch(epoch)
+        for source, targets in self.train_data:
+            source = source.to(self.gpu_id)
+            targets = targets.to(self.gpu_id)
+            self._run_batch(source, targets)
+
+    def _save_snapshot(self, epoch):
+        snapshot = {
+            "MODEL_STATE": self.model.module.state_dict(),
+            "EPOCHS_RUN": epoch,
+        }
+        torch.save(snapshot, self.snapshot_path)
+        print(f"Epoch {epoch} | Training snapshot saved at {self.snapshot_path}")
+
+    def train(self, max_epochs: int):
+        for epoch in range(self.epochs_run, max_epochs):
+            self._run_epoch(epoch)
+            if self.gpu_id == 0 and epoch % self.save_every == 0:
+                self._save_snapshot(epoch)
+
 
 def main(args):
 
     if not os.path.exists(args.save_weights_dir):
         os.makedirs(args.save_weights_dir)
 
-    # start = time.time()
+    ddp_setup()
     best_mIoU = 0.0
     device = args.device
 
@@ -193,10 +261,10 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        'Pytorch SegFormer Models training and evaluation script', parents=[get_argparser()])
+        'Pytorch SegFormer Models training and evaluation script', parents=[get_args()])
     args = parser.parse_args()
-    fix_seeds(2023)
-    setup_cudnn()
-    args.gpu_id = setup_ddp()
+    # fix_seeds(2023)
+    # setup_cudnn()
+    # args.gpu_id = setup_ddp()
     main(args)
-    cleanup_ddp()
+    # cleanup_ddp()

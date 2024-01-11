@@ -49,16 +49,17 @@ def count_parameters(model: nn.Module) -> float:
     return sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6      # in M
 
 def setup_ddp() -> int:
+    print('RANK' in os.environ, 'WORLD_SIZE' in os.environ)
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ['RANK'])
         world_size = int(os.environ['WORLD_SIZE'])
-        gpu = int(os.environ(['LOCAL_RANK']))
-        torch.cuda.set_device(gpu)
+        gpu_id = int(os.environ(['LOCAL_RANK']))
+        torch.cuda.set_device(gpu_id)
         dist.init_process_group('nccl', init_method="env://",world_size=world_size, rank=rank)
         dist.barrier()
     else:
-        gpu = 0
-    return gpu
+        gpu_id = 0
+    return gpu_id
 
 
 def cleanup_ddp():
