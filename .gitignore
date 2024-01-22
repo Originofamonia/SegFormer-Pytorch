@@ -162,3 +162,7 @@ cython_debug/
 # *.txt
 *.pt
 *.zip
+pretrained/
+output/
+ADE20k_toy_dataset/
+data/

@@ -1,5 +1,6 @@
 import torch
 import math
+import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from utils.metrics import Metrics
@@ -54,20 +55,70 @@ def train_one_epoch(args, model, optimizer, loss_fn, dataloader, sampler, schedu
     return metric_logger.meters["loss"].global_avg, lr
 
 
+def city_train_one_epoch(args, model, optimizer, loss_fn, dataloader, sampler, scheduler,
+                    epoch, device, print_freq, scaler=None):
+    model.train()
+
+    if args.DDP:
+        sampler.set_epoch(epoch)
+
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    header = 'Epoch: [{}]'.format(epoch)
+
+    for iter, (img, lbl) in enumerate(metric_logger.log_every(dataloader, print_freq, header)):
+
+        img = img.to(device)
+        lbl = lbl.to(device)
+        optimizer.zero_grad()
+
+        if scaler is not None:
+            with autocast(enabled=args.amp):
+                outputs = model(img, lbl)
+                loss, logits = outputs.loss, outputs.logits
+                # loss = loss_fn(logits, lbl)
+        else:
+            outputs = model(img, lbl)
+            loss, logits = outputs.loss, outputs.logits
+            # loss = loss_fn(logits, lbl)
+
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
+
+        scheduler.step()
+        torch.cuda.synchronize()
+
+        loss_value = loss.item()
+        lr = optimizer.param_groups[0]["lr"]
+
+        metric_logger.update(loss=loss_value, lr=lr)
+
+    torch.cuda.empty_cache()
+
+    return metric_logger.meters["loss"].global_avg, lr
+
 
 @torch.no_grad()
-def evaluate(args, model, dataloader, device, print_freq):
+def eval(args, model, dataloader, device, print_freq):
     model.eval()
 
     confmat = utils.ConfusionMatrix(args.num_classes)
     metric_logger = utils.MetricLogger(delimiter="  ")
-    header = 'Test:'
+    header = 'Test: '
 
     for images, labels in metric_logger.log_every(dataloader, print_freq, header):
         images = images.to(device)
         labels = labels.to(device)
-        outputs = model(images)
-        confmat.update(labels.flatten(), outputs.argmax(1).flatten())
+        outputs = model(images, labels)
+        loss, logits = outputs.loss, outputs.logits
+        upsampled_logits = nn.functional.interpolate(logits, size=labels.shape[-2:], mode="bilinear", align_corners=False)
+        predicted = upsampled_logits.argmax(dim=1)
+        confmat.update(labels.flatten(), predicted.flatten())
 
     confmat.reduce_from_all_processes()
     return confmat

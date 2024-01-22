@@ -10,20 +10,20 @@ from tabulate import tabulate
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from pathlib import Path
-from torch.utils.tensorboard import SummaryWriter
+import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, RandomSampler
 from torch import distributed as dist
 # from timm.models import create_model
 from models import *
-from datasets import *
+from local_datasets import *
 from utils.augmentations import get_train_augmentation, get_val_augmentation
 from utils.losses import get_loss
 from utils.schedulers import get_scheduler, create_lr_scheduler
 from utils.optimizers import get_optimizer
 from utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
-from engine import train_one_epoch, evaluate
+from engine import train_one_epoch, eval
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
@@ -45,17 +45,17 @@ def get_argparser():
     parser.add_argument("--model", type=str, default='make_SegFormerB1', help='model name')
 
     # Train Options
-    parser.add_argument("--amp", type=bool, default=True, help='auto mixture precision') # There may be some problems when loading weights, such as: ComplexFloat
+    parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision') # There may be some problems when loading weights, such as: ComplexFloat
     parser.add_argument("--epochs", type=int, default=2, help='total training epochs')
     parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
     parser.add_argument("--num_workers", type=int, default=3,
                         help='num_workers, set it equal 0 when run programs in win platform')
-    parser.add_argument("--DDP", type=bool, default=True)
+    parser.add_argument("--DDP", type=bool, default=False)
     parser.add_argument("--train_print_freq", type=int, default=50)
     parser.add_argument("--val_print_freq", type=int, default=50)
 
     # Loss Options
-    parser.add_argument("--loss_fn_name", type=str, default='OhemCrossEntropy')
+    parser.add_argument("--loss_fn_name", type=str, default='CrossEntropy', choices=['OhemCrossEntropy', 'CrossEntropy'])
 
     # Optimizer & LR-scheduler Options
     parser.add_argument("--optimizer", type=str, default='adamw')
@@ -76,6 +76,8 @@ def get_argparser():
     parser.add_argument("--save_dir", type=str, default='./', help='SummaryWriter save dir')
     parser.add_argument("--gpu_id", type=int, default=0,
                         help="GPU ID")
+    parser.add_argument("--load_pretrained", type=bool, default=True)
+    parser.add_argument("--pretrained_path", type=str, default='/home/qiyuan/2024spring/SegFormer-Pytorch/pretrained/segformer.b1.1024x1024.city.160k.pt')
 
     return parser
 
@@ -99,6 +101,12 @@ def main(args):
     valid_set = CityScapes(args.data_root, 'val', val_transform)
 
     model = make_SegFormerB1(num_classes=args.num_classes)
+    if os.path.isfile(args.pretrained_path) and args.load_pretrained:
+        print("Loading pretrained")
+        loc = f"cuda:{args.gpu_id}"
+        snapshot = torch.load(args.pretrained_path, map_location=loc)
+        model.load_state_dict(snapshot['state_dict'])
+        print(f"Resuming training from {args.pretrained_path}")
 
     if args.DDP:
         # dist.init_process_group("nccl")
@@ -120,8 +128,8 @@ def main(args):
     loss_fn = get_loss(args.loss_fn_name, train_set.ignore_label, None)
     optimizer = get_optimizer(model, args.optimizer, args.lr, args.weight_decay)
 
-    # scheduler = get_scheduler(args.lr_scheduler, optimizer, args.epochs * iters_per_epoch, args.lr_power,
-    #                           iters_per_epoch * args.lr_warmup, args.lr_warmup_ratio)
+    scheduler = get_scheduler(args.lr_scheduler, optimizer, args.epochs * iters_per_epoch, args.lr_power,
+                              iters_per_epoch * args.lr_warmup, args.lr_warmup_ratio)
 
     scheduler = create_lr_scheduler(optimizer, len(trainloader), args.epochs, warmup=True)
 
@@ -150,7 +158,7 @@ def main(args):
         mean_loss, lr = train_one_epoch(args, model, optimizer, loss_fn, trainloader, sampler, scheduler,
                                      epoch, device, args.train_print_freq, scaler)
 
-        confmat = evaluate(args, model, valloader, device, args.val_print_freq)
+        confmat = eval(args, model, valloader, device, args.val_print_freq)
 
         val_info = str(confmat)
         print(val_info)
