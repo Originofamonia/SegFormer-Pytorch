@@ -10,7 +10,7 @@ import json
 from huggingface_hub import hf_hub_download
 import argparse
 import yaml
-from transformers import SegformerFeatureExtractor
+from transformers import SegformerFeatureExtractor, SegformerConfig
 from transformers import SegformerForSemanticSegmentation
 import multiprocessing as mp
 from tabulate import tabulate
@@ -49,19 +49,19 @@ def get_argparser():
     parser.add_argument("--dataset", type=str, default='cityscapes',choices=['cityscapes', 'traversability'], help='Name of dataset')
     parser.add_argument("--num_classes", type=int, default=19, help="num classes (default: None)")
     parser.add_argument("--pin_mem", type=bool, default=True, help="Dataloader ping_memory")
-    parser.add_argument("--batch_size", type=int, default=4,help='batch size (default: 4)') # consume approximately 3G GPU-Memory
+    parser.add_argument("--batch_size", type=int, default=4,help='batch size (default: 4)')
     parser.add_argument("--val_batch_size", type=int, default=4,help='batch size for validation (default: 2)')
 
     # SegFormer Options
     parser.add_argument("--model", type=str, default='make_SegFormerB1', help='model name')
 
     # Train Options
-    parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision') # There may be some problems when loading weights, such as: ComplexFloat
+    parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision, do not use') # There may be some problems when loading weights, such as: ComplexFloat
     parser.add_argument("--epochs", type=int, default=2, help='total training epochs')
     parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
-    parser.add_argument("--num_workers", type=int, default=3,
+    parser.add_argument("--num_workers", type=int, default=4,
                         help='num_workers, set it equal 0 when run programs in win platform')
-    parser.add_argument("--DDP", type=bool, default=False)
+    parser.add_argument("--DDP", type=bool, default=True)
     parser.add_argument("--train_print_freq", type=int, default=50)
     parser.add_argument("--val_print_freq", type=int, default=50)
 
@@ -121,7 +121,10 @@ class Trainer:
         self.valloader = DataLoader(valid_set, batch_size=args.val_batch_size, num_workers=args.num_workers,
                             drop_last=False, pin_memory=args.pin_mem)
         # self.loss_fn = get_loss(args.loss_fn_name, train_set.ignore_label, None)
+        # config = SegformerConfig()
+        # config.semantic_loss_ignore_index = 255
         self.model = SegformerForSemanticSegmentation.from_pretrained(args.pretrained_path,
+                                                                    #   config=config,
                                                                 num_labels=args.num_classes, 
                                                                 id2label=id2label, 
                                                                 label2id=label2id).to(self.gpu_id)
@@ -201,6 +204,10 @@ class Trainer:
                 confmat = self.eval()
                 val_info = str(confmat)
                 print(val_info)
+
+        confmat = self.eval()
+        val_info = str(confmat)
+        print(val_info)
     
     @torch.no_grad()
     def eval(self,):
@@ -224,7 +231,8 @@ def main(args):
         ddp_setup()
     trainer = Trainer(args)
     trainer.train()
-    destroy_process_group()
+    if args.DDP:
+        destroy_process_group()
     # model = model.to(args.device)
     # for epoch in range(args.epochs):
     #     mean_loss, lr = city_train_one_epoch(args, model, optimizer, loss_fn, trainloader, sampler, scheduler,
