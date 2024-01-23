@@ -197,7 +197,7 @@ class Cityscapes(Dataset):
         return len(self.files)
 
 
-    def encode(self, label: Tensor) -> Tensor:
+    def encode(self, label: np.array) -> Tensor:
         label = self.label_map[label]
         return torch.from_numpy(label)
 
@@ -209,4 +209,5 @@ class Cityscapes(Dataset):
         label = io.read_image(lbl_path)
         if self.transform:
             image, label = self.transform(image, label)
-        return image, self.encode(label.squeeze().numpy()).long()
+        lbl = self.encode(label.squeeze().numpy()).long()
+        return image, lbl

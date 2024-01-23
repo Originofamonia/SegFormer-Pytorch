@@ -1,19 +1,18 @@
 """
 https://huggingface.co/nvidia/segformer-b3-finetuned-cityscapes-1024-1024
 https://huggingface.co/blog/fine-tune-segformer
-torchrun --standalone --nproc_per_node=gpu finetune_segformer_city_ddp.py
+torchrun --standalone --nproc_per_node=gpu SegFormer/finetune_segformer_city_ddp.py
 """
 import os
-import re
+# import re
 import torch
 import json
 from huggingface_hub import hf_hub_download
 import argparse
-import yaml
+# import yaml
 from transformers import SegformerFeatureExtractor, SegformerConfig
 from transformers import SegformerForSemanticSegmentation
 import multiprocessing as mp
-from tabulate import tabulate
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.nn import functional as F
@@ -23,15 +22,18 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, RandomSampler
 from torch.distributed import init_process_group, destroy_process_group
 # from torchvision.datasets import Cityscapes
-import evaluate
+# import evaluate
 
 from local_datasets import Cityscapes
 from utils.augmentations import get_train_augmentation, get_val_augmentation
 from utils.losses import get_loss
 from utils.schedulers import get_scheduler, create_lr_scheduler
 from utils.optimizers import get_optimizer
-from utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
+# from utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 import utils.distributed_utils as utils
+
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# os.environ['TORCH_USE_CUDA_DSA'] = '1'
 
 
 def ddp_setup():
@@ -49,8 +51,8 @@ def get_argparser():
     parser.add_argument("--dataset", type=str, default='cityscapes',choices=['cityscapes', 'traversability'], help='Name of dataset')
     parser.add_argument("--num_classes", type=int, default=19, help="num classes (default: None)")
     parser.add_argument("--pin_mem", type=bool, default=True, help="Dataloader ping_memory")
-    parser.add_argument("--batch_size", type=int, default=4,help='batch size (default: 4)')
-    parser.add_argument("--val_batch_size", type=int, default=4,help='batch size for validation (default: 2)')
+    parser.add_argument("--batch_size", type=int, default=6,help='batch size (default: 4)')
+    parser.add_argument("--val_batch_size", type=int, default=6,help='batch size for validation (default: 2)')
 
     # SegFormer Options
     parser.add_argument("--model", type=str, default='make_SegFormerB1', help='model name')
@@ -84,7 +86,7 @@ def get_argparser():
     parser.add_argument("--save_weights_dir", default='./save_weights', type=str,
                         help="restore from checkpoint")
     parser.add_argument("--resume", type=bool, default=False)
-    parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
+    parser.add_argument("--gpu_id", type=int, default=1, help="GPU ID")
     parser.add_argument("--save_dir", type=str, default='./', help='SummaryWriter save dir')
     parser.add_argument("--eval_interval", type=int, default=2, help="evaluation interval")
     parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")
@@ -121,21 +123,18 @@ class Trainer:
         self.valloader = DataLoader(valid_set, batch_size=args.val_batch_size, num_workers=args.num_workers,
                             drop_last=False, pin_memory=args.pin_mem)
         # self.loss_fn = get_loss(args.loss_fn_name, train_set.ignore_label, None)
-        # config = SegformerConfig()
-        # config.semantic_loss_ignore_index = 255
         self.model = SegformerForSemanticSegmentation.from_pretrained(args.pretrained_path,
-                                                                    #   config=config,
-                                                                num_labels=args.num_classes, 
-                                                                id2label=id2label, 
-                                                                label2id=label2id).to(self.gpu_id)
-        self.metric = evaluate.load("mean_iou")
+            # num_labels=args.num_classes, 
+            id2label=id2label, label2id=label2id
+            ).to(self.gpu_id)
+        # self.metric = evaluate.load("mean_iou")
         self.optimizer = get_optimizer(self.model, args.optimizer, args.lr, args.weight_decay)
         iters_per_epoch = len(train_set) // args.batch_size
         self.scheduler = get_scheduler(args.lr_scheduler, self.optimizer, args.epochs * iters_per_epoch, args.lr_power,
                                 iters_per_epoch * args.lr_warmup, args.lr_warmup_ratio)
         self.scaler = GradScaler(enabled=args.amp) if torch.cuda.is_bf16_supported() else None
-        self.metric_logger = utils.MetricLogger(delimiter="  ")
-        self.metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
+        # self.metric_logger = utils.MetricLogger(delimiter="  ")
+        # self.metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
         self.confmat = utils.ConfusionMatrix(args.num_classes)
 
         if args.DDP:
@@ -152,8 +151,8 @@ class Trainer:
         self.model.train()
         if self.args.DDP:
             self.trainloader.sampler.set_epoch(epoch)
-        # header = 'Epoch: [{}]'.format(epoch)
-        for iter, (img, lbl) in enumerate(tqdm(self.trainloader)):
+        pbar = tqdm(self.trainloader)
+        for i, (img, lbl) in enumerate(pbar):
             img = img.to(self.gpu_id)
             lbl = lbl.to(self.gpu_id)
             self.optimizer.zero_grad()
@@ -166,7 +165,7 @@ class Trainer:
             else:
                 outputs = self.model(img, lbl)
                 loss, logits = outputs.loss, outputs.logits
-                # loss = loss_fn(logits, lbl)
+                # print(lbl.unique())
 
             if self.scaler:
                 self.scaler.scale(loss).backward()
@@ -182,10 +181,10 @@ class Trainer:
             loss_value = loss.item()
             lr = self.optimizer.param_groups[0]["lr"]
 
-            self.metric_logger.update(loss=loss_value, lr=lr)
+            pbar.set_description(f'e: {epoch}; iter: {i}; loss: {loss_value:.3f}')
 
         torch.cuda.empty_cache()
-        return self.metric_logger.meters["loss"].global_avg, lr
+        return lr
 
     def _save_snapshot(self, epoch):
         snapshot = {
@@ -212,8 +211,8 @@ class Trainer:
     @torch.no_grad()
     def eval(self,):
         self.model.eval()
-        header = 'Test: '
-        for i, (images, labels) in enumerate(tqdm(self.valloader)):
+        pbar = tqdm(self.valloader)
+        for i, (images, labels) in enumerate(pbar):
             images = images.to(self.gpu_id)
             labels = labels.to(self.gpu_id)
             outputs = self.model(images, labels)
@@ -221,6 +220,7 @@ class Trainer:
             upsampled_logits = nn.functional.interpolate(logits, size=labels.shape[-2:], mode="bilinear", align_corners=False)
             predicted = upsampled_logits.argmax(dim=1)
             self.confmat.update(labels.flatten(), predicted.flatten())
+            pbar.set_description(f'iter: {i}, loss: {loss.item():.3f}')
 
         self.confmat.reduce_from_all_processes()
         return self.confmat
