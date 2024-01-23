@@ -1,1 +1,1 @@
-from .cityscapes import Cityscapes
+from .cityscapes import Cityscapes, IndoorTrav

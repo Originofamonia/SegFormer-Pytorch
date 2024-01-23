@@ -358,6 +358,29 @@ def get_val_augmentation(size: Union[int, Tuple[int], List[int]]):
         Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
 
+
+def trav_train_augmentation(size: Union[int, Tuple[int], List[int]], seg_fill: int = 0):
+    return Compose([
+        # ToTensor(),
+        # ColorJitter(brightness=0.0, contrast=0.5, saturation=0.5, hue=0.5),
+        # RandomAdjustSharpness(sharpness_factor=0.1, p=0.5),
+        # RandomAutoContrast(p=0.2),
+        RandomHorizontalFlip(p=0.5),
+        # RandomVerticalFlip(p=0.5),
+        # RandomGaussianBlur((3, 3), p=0.5),
+        # RandomGrayscale(p=0.5),
+        # RandomRotation(degrees=10, p=0.3, seg_fill=seg_fill),
+        RandomResizedCrop(size, scale=(0.5, 2.0)),
+        Normalize((0.5174, 0.4857, 0.5054), (0.2726, 0.2778, 0.2861))
+    ])
+
+
+def trav_val_augmentation(size: Union[int, Tuple[int], List[int]]):
+    return Compose([
+        # ToTensor(),
+        Resize(size),
+        Normalize((0.5174, 0.4857, 0.5054), (0.2726, 0.2778, 0.2861))
+    ])
 #
 # if __name__ == '__main__':
 #     h = 230
