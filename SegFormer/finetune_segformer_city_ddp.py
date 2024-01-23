@@ -21,8 +21,6 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, RandomSampler
 from torch.distributed import init_process_group, destroy_process_group
-# from torchvision.datasets import Cityscapes
-# import evaluate
 
 from local_datasets import Cityscapes
 from utils.augmentations import get_train_augmentation, get_val_augmentation
@@ -31,9 +29,6 @@ from utils.schedulers import get_scheduler, create_lr_scheduler
 from utils.optimizers import get_optimizer
 # from utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 import utils.distributed_utils as utils
-
-# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-# os.environ['TORCH_USE_CUDA_DSA'] = '1'
 
 
 def ddp_setup():
@@ -51,15 +46,15 @@ def get_argparser():
     parser.add_argument("--dataset", type=str, default='cityscapes',choices=['cityscapes', 'traversability'], help='Name of dataset')
     parser.add_argument("--num_classes", type=int, default=19, help="num classes (default: None)")
     parser.add_argument("--pin_mem", type=bool, default=True, help="Dataloader ping_memory")
-    parser.add_argument("--batch_size", type=int, default=6,help='batch size (default: 4)')
-    parser.add_argument("--val_batch_size", type=int, default=6,help='batch size for validation (default: 2)')
+    parser.add_argument("--batch_size", type=int, default=6,help='batch size (max: 6, min: 2)')
+    parser.add_argument("--val_batch_size", type=int, default=2,help='batch size for validation (default: 2)')
 
     # SegFormer Options
     parser.add_argument("--model", type=str, default='make_SegFormerB1', help='model name')
 
     # Train Options
     parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision, do not use') # There may be some problems when loading weights, such as: ComplexFloat
-    parser.add_argument("--epochs", type=int, default=2, help='total training epochs')
+    parser.add_argument("--epochs", type=int, default=50, help='total training epochs')
     parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
     parser.add_argument("--num_workers", type=int, default=4,
                         help='num_workers, set it equal 0 when run programs in win platform')
@@ -92,7 +87,7 @@ def get_argparser():
     parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")
     parser.add_argument("--load_pretrained", type=bool, default=True)
     parser.add_argument("--pretrained_path", type=str, default='nvidia/segformer-b3-finetuned-cityscapes-1024-1024')
-
+    parser.add_argument("--snapshot_path", type=str, default='save_weights/b3_finetuned.pt')
     return parser
 
 class Trainer:
@@ -122,19 +117,15 @@ class Trainer:
 
         self.valloader = DataLoader(valid_set, batch_size=args.val_batch_size, num_workers=args.num_workers,
                             drop_last=False, pin_memory=args.pin_mem)
-        # self.loss_fn = get_loss(args.loss_fn_name, train_set.ignore_label, None)
         self.model = SegformerForSemanticSegmentation.from_pretrained(args.pretrained_path,
             # num_labels=args.num_classes, 
             id2label=id2label, label2id=label2id
             ).to(self.gpu_id)
-        # self.metric = evaluate.load("mean_iou")
         self.optimizer = get_optimizer(self.model, args.optimizer, args.lr, args.weight_decay)
         iters_per_epoch = len(train_set) // args.batch_size
         self.scheduler = get_scheduler(args.lr_scheduler, self.optimizer, args.epochs * iters_per_epoch, args.lr_power,
                                 iters_per_epoch * args.lr_warmup, args.lr_warmup_ratio)
         self.scaler = GradScaler(enabled=args.amp) if torch.cuda.is_bf16_supported() else None
-        # self.metric_logger = utils.MetricLogger(delimiter="  ")
-        # self.metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
         self.confmat = utils.ConfusionMatrix(args.num_classes)
 
         if args.DDP:
@@ -191,13 +182,13 @@ class Trainer:
             "MODEL_STATE": self.model.module.state_dict(),
             "EPOCHS_RUN": epoch,
         }
-        torch.save(snapshot, self.snapshot_path)
-        print(f"Epoch {epoch} | Training snapshot saved at {self.snapshot_path}")
+        torch.save(snapshot, self.args.snapshot_path)
+        print(f"Epoch {epoch} | Training snapshot saved at {self.args.snapshot_path}")
 
     def train(self,):
         for epoch in range(self.args.epochs):
             self.train_epoch(epoch)
-            if self.gpu_id == 0 and epoch % self.save_every == 0:
+            if self.gpu_id == 0 and epoch % self.args.save_every == 0 and self.args.snapshot_path:
                 self._save_snapshot(epoch)
             if epoch % self.args.eval_interval == 0:
                 confmat = self.eval()
@@ -207,7 +198,7 @@ class Trainer:
         confmat = self.eval()
         val_info = str(confmat)
         print(val_info)
-    
+
     @torch.no_grad()
     def eval(self,):
         self.model.eval()
@@ -233,15 +224,6 @@ def main(args):
     trainer.train()
     if args.DDP:
         destroy_process_group()
-    # model = model.to(args.device)
-    # for epoch in range(args.epochs):
-    #     mean_loss, lr = city_train_one_epoch(args, model, optimizer, loss_fn, trainloader, sampler, scheduler,
-    #                                  epoch, args.device, args.train_print_freq, scaler)
-
-    #     confmat = eval(args, model, valloader, args.device, args.val_print_freq)
-
-    #     val_info = str(confmat)
-    #     print(val_info)
 
 
 if __name__ == '__main__':
