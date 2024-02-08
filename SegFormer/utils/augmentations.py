@@ -1,12 +1,21 @@
+import os
+from multiprocessing import Pool
 import torchvision.transforms.functional as TF
+import numpy as np
+from collections import defaultdict
+from functools import partial
+from tqdm import tqdm
 # from torchvision.transforms import (ToTensor, Compose, RandomHorizontalFlip, 
 #                                     RandomResizedCrop, Normalize, Resize)
 import random
 import math
 import torch
 from torch import Tensor
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, Dict, Callable, Iterable, TypeVar
+from functools import partial
 
+A = TypeVar("A")
+B = TypeVar("B")
 
 class Compose:
     def __init__(self, transforms: list) -> None:
@@ -381,6 +390,105 @@ def trav_val_augmentation(size: Union[int, Tuple[int], List[int]]):
         Resize(size),
         Normalize((0.5174, 0.4857, 0.5054), (0.2726, 0.2778, 0.2861))
     ])
+
+
+def mmap_(fn: Callable[[A], B], iter: Iterable[A]) -> List[B]:
+    return Pool().map(fn, iter)
+
+
+def make_trav_dataset(
+        data_root: str,
+        scenes: List[str],
+        split: str,
+        class_list: List[int]
+    ) -> Tuple[List[Tuple[str, str]], Dict[int, List[Tuple[str, str]]]]:
+    '''
+    Recovers all tupples (img_path, label_path) relevant to the current 
+    experiments (class_list is used as filter)
+    input:
+        data_root : Path to the data directory
+        scenes: choices=['elb', 'erb', 'uc', 'nh', 'woh']
+        class_list: List of classes to keep
+    returns:
+        image_label_list: List of (img_path, label_path) that contain at least 
+        1 object of a class in class_list
+        class_file_dict: Dict of all (img_path, label_path that contain at least
+        1 object of a class in class_list, grouped by classes.
+    '''
+    if not os.path.isdir(data_root):
+        raise (RuntimeError("Image dir do not exist: " + data_root + "\n"))
+    scene_dirs = [os.path.join(data_root, x) for x in scenes]
+    if split == 'train':
+        images_dirs = [os.path.join(x, 'positive') for x in scene_dirs]
+    else:  # 'val'
+        images_dirs = [os.path.join(x, 'challenging') for x in scene_dirs]
+
+    image_target_pairs = []
+
+    for scene in images_dirs:
+        img_dir = os.path.join(scene, 'images')
+        target_dir = os.path.join(scene, 'labels')
+
+        for filename in os.listdir(img_dir):
+            abs_img_path = os.path.join(img_dir, filename)
+            target_name = filename.rstrip('.jpg') + '.npy'
+            abs_label_path = os.path.join(target_dir, target_name)
+            if os.path.exists(abs_img_path) and os.path.exists(abs_label_path):
+                image_target_pairs.append((abs_img_path, abs_label_path))
+
+    image_label_list: List[Tuple[str, str]] = []
+
+    print(f"Processing data for {class_list}")
+    class_file_dict: Dict[int, List[Tuple[str, str]]] = defaultdict(list)
+
+    process_partial = partial(process_trav_image, class_list=class_list)
+
+    for sublist, subdict in mmap_(process_partial, tqdm(image_target_pairs)):
+        image_label_list += sublist
+
+        for (k, v) in subdict.items():
+            class_file_dict[k] += v
+
+    return image_label_list, class_file_dict
+
+
+def process_trav_image(pair: Tuple, class_list: List) -> Tuple[List, Dict]:
+    '''
+    Reads and parses a line corresponding to 1 file
+    input:
+    pair: image, label
+    class_list: List of classes to keep
+    '''
+    item: Tuple[str, str] = (pair[0], pair[1])
+    label = np.load(pair[1])
+    label_class = np.unique(label).tolist()
+
+    for label_class_ in label_class:
+        assert label_class_ in list(range(0, 256)), label_class_
+
+    c: int
+    new_label_class = []
+    for c in label_class:
+        if c in class_list:
+            tmp_label = np.zeros_like(label)
+            target_pix = np.where(label == c)
+            tmp_label[target_pix[0], target_pix[1]] = 1
+            if tmp_label.sum() >= 2 * 32 * 32:
+                new_label_class.append(c)
+
+    label_class = new_label_class
+
+    image_label_list: List[Tuple[str, str]] = []
+    class_file_dict: Dict[int, List[Tuple[str, str]]] = defaultdict(list)
+
+    if len(label_class) > 0:
+        image_label_list.append(item)
+
+        for c in label_class:
+            assert c in class_list
+            class_file_dict[c].append(item)
+
+    return image_label_list, class_file_dict
 #
 # if __name__ == '__main__':
 #     h = 230

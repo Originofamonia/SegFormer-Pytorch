@@ -4,11 +4,19 @@ from torch.optim import AdamW, SGD
 
 def get_optimizer(model: nn.Module, optimizer: str, lr: float, weight_decay: float = 0.01):
     wd_params, nwd_params = [], []
-    for p in model.parameters():
-        if p.dim() == 1:
-            nwd_params.append(p)
-        else:
-            wd_params.append(p)
+    if isinstance(model, nn.Module):
+        for p in model.parameters():
+            if p.dim() == 1:
+                nwd_params.append(p)
+            else:
+                wd_params.append(p)
+    else:
+        for part in model:
+            for p in part.parameters():
+                if p.dim() == 1:
+                    nwd_params.append(p)
+                else:
+                    wd_params.append(p)
 
     params = [
         {"params": wd_params},

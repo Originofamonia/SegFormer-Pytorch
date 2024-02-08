@@ -2,6 +2,7 @@
 https://huggingface.co/nvidia/segformer-b3-finetuned-cityscapes-1024-1024
 https://huggingface.co/blog/fine-tune-segformer
 torchrun --standalone --nproc_per_node=gpu SegFormer/segformer_trav_ddp.py
+Fully-supervised training of segformer on trav dataset.
 """
 import os
 # import re
@@ -10,12 +11,12 @@ import json
 from huggingface_hub import hf_hub_download
 import argparse
 # import yaml
-from transformers import SegformerFeatureExtractor, SegformerConfig
+# from transformers import SegformerFeatureExtractor, SegformerConfig
 from transformers import SegformerForSemanticSegmentation
 import multiprocessing as mp
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from torch.nn import functional as F
+# from torch.nn import functional as F
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -24,12 +25,13 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from local_datasets import IndoorTrav
 from utils.augmentations import trav_train_augmentation, trav_val_augmentation
-from utils.losses import get_loss
+# from utils.losses import get_loss
 from utils.schedulers import get_scheduler, create_lr_scheduler
 from utils.optimizers import get_optimizer
 # from utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
 import utils.distributed_utils as utils
 
+# os.environ['OMP_NUM_THREADS'] = f"{int(os.cpu_count() // torch.cuda.device_count())}"  # no, slower
 
 def ddp_setup():
     init_process_group(backend="nccl")
@@ -60,7 +62,7 @@ def get_argparser():
     parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
     parser.add_argument("--num_workers", type=int, default=4,
                         help='num_workers, set it equal 0 when run programs in win platform')
-    parser.add_argument("--DDP", type=bool, default=True)
+    parser.add_argument("--DDP", type=bool, default=False)
     parser.add_argument("--train_print_freq", type=int, default=50)
     parser.add_argument("--val_print_freq", type=int, default=50)
 
