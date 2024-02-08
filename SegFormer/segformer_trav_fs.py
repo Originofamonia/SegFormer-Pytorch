@@ -278,7 +278,7 @@ class Trainer:
             if self.gpu_id == 0 and epoch % self.args.save_every == 0 and self.args.snapshot_path:
                 self._save_snapshot(epoch)
             if epoch % self.args.eval_interval == 0:
-                confmat = self.eval()
+                confmat = self.eval(epoch)
                 val_info = str(confmat)
                 print(val_info)
 
@@ -286,7 +286,7 @@ class Trainer:
         val_info = str(confmat)
         print(val_info)
 
-    def eval(self,):
+    def eval(self, epoch):
         self.confmat.reset()
         self.model.train()
         self.transformer.eval()
@@ -353,7 +353,7 @@ class Trainer:
             upsampled_logits = nn.functional.interpolate(logits, size=q_label.shape[-2:], mode="bilinear", align_corners=False)
             predicted = upsampled_logits.argmax(dim=1)
             self.confmat.update(q_label.flatten(), predicted.flatten())
-            pbar.set_description(f'eval iter: {i}, ')
+            pbar.set_description(f'Epoch: {epoch}, eval iter: {i}')
 
         self.confmat.reduce_from_all_processes()
         return self.confmat
