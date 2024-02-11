@@ -161,9 +161,9 @@ class Trainer:
                     loss, logits = outputs.loss, outputs.logits
                     # loss = loss_fn(logits, lbl)
             else:
-                outputs = self.model(img, lbl)
+                outputs, hid = self.model(img, lbl)
                 loss, logits = outputs.loss, outputs.logits
-                # print(lbl.unique())
+                # TODO: add infoNCE loss from logits
 
             if self.scaler:
                 self.scaler.scale(loss).backward()
