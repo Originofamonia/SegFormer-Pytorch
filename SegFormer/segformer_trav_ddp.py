@@ -42,7 +42,7 @@ def get_argparser():
     parser = argparse.ArgumentParser('Pytorch SegFormer Models training and evaluation script', add_help=False)
 
     # Datset Options
-    parser.add_argument("--data_root", type=str, default='/home/qiyuan/2023spring/segmentation_indoor_images',help="path to Dataset")
+    parser.add_argument("--data_root", type=str, default='/mnt/hdd/segmentation_indoor_images',help="path to Dataset")
     parser.add_argument("--scenes", type=list, default=['elb', 'erb', 'uc', 'woh'],
                         choices=['elb', 'erb', 'uc', 'nh', 'woh'], help='Name of dataset')
     parser.add_argument("--image_size", type=int, default=[480, 640], help="input size")
@@ -59,7 +59,7 @@ def get_argparser():
     # Train Options
     parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision, do not use') # There may be some problems when loading weights, such as: ComplexFloat
     parser.add_argument("--epochs", type=int, default=20, help='total training epochs')
-    parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
+    parser.add_argument("--device", type=str, default='cuda:0', help='device (cuda:0 or cpu)')
     parser.add_argument("--num_workers", type=int, default=4,
                         help='num_workers, set it equal 0 when run programs in win platform')
     parser.add_argument("--DDP", type=bool, default=False)
@@ -85,7 +85,7 @@ def get_argparser():
     parser.add_argument("--save_weights_dir", default='./save_weights', type=str,
                         help="restore from checkpoint")
     parser.add_argument("--resume", type=bool, default=False)
-    parser.add_argument("--gpu_id", type=int, default=1, help="GPU ID")
+    parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--save_dir", type=str, default='./', help='SummaryWriter save dir')
     parser.add_argument("--eval_interval", type=int, default=2, help="evaluation interval")
     parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")

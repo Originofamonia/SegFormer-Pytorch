@@ -6,13 +6,14 @@ Few-shot training of segformer on trav dataset.
 Freeze segformer, only finetune the fusion transformer model
 """
 import os
-# import re
+from pptx import Presentation
+from pptx.util import Inches, Pt
 import torch
 import json
 from huggingface_hub import hf_hub_download
 import argparse
 import numpy as np
-# from transformers import SegformerFeatureExtractor, SegformerConfig
+import matplotlib.pyplot as plt
 from transformers import SegformerForSemanticSegmentation
 import multiprocessing as mp
 from tqdm import tqdm
@@ -26,6 +27,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from local_datasets.cityscapes import trav_train_loader, trav_val_loader
 from models.transformer import MultiHeadAttentionOne
+from models.infonce import InfoNCE
 from utils.schedulers import get_scheduler, create_lr_scheduler
 from utils.optimizers import get_optimizer
 # from utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp
@@ -42,7 +44,7 @@ def get_argparser():
     parser = argparse.ArgumentParser('Pytorch SegFormer Models training and evaluation script', add_help=False)
 
     # Datset Options
-    parser.add_argument("--data_root", type=str, default='/home/qiyuan/2023spring/segmentation_indoor_images',help="path to Dataset")
+    parser.add_argument("--data_root", type=str, default='/mnt/hdd/segmentation_indoor_images',help="path to Dataset")
     parser.add_argument("--scenes", type=list, default=['elb', 'erb', 'uc', 'woh'],
                         choices=['elb', 'erb', 'uc', 'nh', 'woh'], help='Name of dataset')
     parser.add_argument("--image_size", type=list, default=480, help="input size, [480, 640]")
@@ -50,7 +52,7 @@ def get_argparser():
     parser.add_argument("--dataset", type=str, default='trav',choices=['cityscapes', 'trav'], help='Name of dataset')
     parser.add_argument("--num_classes", type=int, default=2, help="num classes (default: None)")
     parser.add_argument("--pin_mem", type=bool, default=True, help="Dataloader ping_memory")
-    parser.add_argument("--batch_size", type=int, default=4,help='batch size (zeus:10, poseidon:4)')
+    parser.add_argument("--batch_size", type=int, default=1,help='batch size (zeus:10, poseidon:4)')
     parser.add_argument("--val_batch_size", type=int, default=4,help='batch size for validation')
     parser.add_argument("--scale_min", type=float, default=0.5)
     parser.add_argument("--scale_max", type=float, default=2.0)
@@ -74,7 +76,8 @@ def get_argparser():
     # Train Options
     parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision, do not use') # There may be some problems when loading weights, such as: ComplexFloat
     parser.add_argument("--epochs", type=int, default=20, help='total training epochs')
-    parser.add_argument("--device", type=str, default='cuda:1', help='device (cuda:0 or cpu)')
+    parser.add_argument("--topk", type=int, default=10, help='topk pos/neg pixels')
+    parser.add_argument("--device", type=str, default='cuda:0', help='device (cuda:0 or cpu)')
     parser.add_argument("--workers", type=int, default=4,
                         help='workers, set it equal 0 when run programs in win platform')
     parser.add_argument("--DDP", type=bool, default=False)
@@ -101,13 +104,13 @@ def get_argparser():
     parser.add_argument("--save_weights_dir", default='./save_weights', type=str,
                         help="restore from checkpoint")
     parser.add_argument("--resume", type=bool, default=False)
-    parser.add_argument("--gpu_id", type=int, default=1, help="GPU ID")
+    parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--save_dir", type=str, default='./', help='SummaryWriter save dir')
     parser.add_argument("--eval_interval", type=int, default=2, help="evaluation interval")
     parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")
     parser.add_argument("--load_pretrained", type=bool, default=True)
     parser.add_argument("--pretrained_path", type=str, default='nvidia/segformer-b3-finetuned-cityscapes-1024-1024')
-    parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs.pt')
+    parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs_infonce.pt')
     return parser
 
 class Trainer:
@@ -146,7 +149,7 @@ class Trainer:
         iters_per_epoch = len(self.trainloader.dataset) // args.batch_size
         self.scheduler = get_scheduler(args.lr_scheduler, self.optimizer, args.epochs * iters_per_epoch, args.lr_power,
                                 iters_per_epoch * args.lr_warmup, args.lr_warmup_ratio)
-        # self.scaler = GradScaler(enabled=args.amp) if torch.cuda.is_bf16_supported() else None
+        self.infonce = InfoNCE(temperature=0.1, negative_mode='unpaired')
         self.confmat = utils.ConfusionMatrix(args.num_classes)
 
         if args.DDP:
@@ -166,28 +169,20 @@ class Trainer:
         if self.args.DDP:
             self.trainloader.sampler.set_epoch(epoch)
         pbar = tqdm(self.trainloader)
+        # prs = Presentation()
+        # blank_slide_layout = prs.slide_layouts[6]
+        # left = top = Inches(1)
         for i, batch in enumerate(pbar):
-            q_img, q_label, spp_imgs, s_label, _, _, _ = batch
+            q_img, q_label, spp_imgs, s_label, _, (s_image_path_list, s_labels), _ = batch
             q_img = q_img.to(self.gpu_id)
             q_label = q_label.to(self.gpu_id)
             spp_imgs = spp_imgs.to(self.gpu_id)
             s_label = s_label.to(self.gpu_id)
 
             # Phase 1: Train the binary classifier on support samples
-            # if spprt_imgs.shape[1] == 1:  # Keep the batch size as 1
-            #     spprt_imgs_reshape = spprt_imgs.squeeze(0).expand(
-            #         2, 3, args.image_size, args.image_size
-            #     )
-            #     s_label_reshape = s_label.squeeze(0).expand(
-            #         2, args.image_size, args.image_size
-            #     ).long()
-            # else:
             spp_imgs_reshape = spp_imgs.squeeze(1)  # [n_shots, 3, img_size, img_size]
             s_label_reshape = s_label.squeeze(1).long() # [n_shots, img_size, img_size]
             # No, use the classifier in Segformer
-            # binary_cls = nn.Conv2d(
-            #     args.bottleneck_dim, args.num_classes_tr, kernel_size=1, bias=False
-            # ).to(self.gpu_id)
 
             optimizer = SGD(self.model.decode_head.classifier.parameters(), lr=args.lr)
             # Dynamic class weights
@@ -201,20 +196,65 @@ class Trainer:
                 weight=torch.tensor([1.0, len(back_pix[0]) / len(target_pix[0])]).to(self.gpu_id),
                 ignore_index=255
             )
-            _, s_hid = self.model(spp_imgs_reshape)  # [n_task, c, h, w]
-
+            s_outputs, s_hid = self.model(spp_imgs_reshape)  # [n_task, c, h, w]
+            s_label_downsampled = F.max_pool2d(s_label.float(), 4)[0][0]  # yes, correct, continue [1,1,120,120]
             for index in range(args.adapt_iter):
                 optimizer.zero_grad()
                 spp_logits = self.model.decode_head.classifier(s_hid)
-                # _, spp_logits = spp_outputs.loss, spp_outputs.logits  # logits: [4,2,120,120]
-                output_support = F.interpolate(
+
+                # 1.1 find FP, FN pixels, topk pos, topk neg pixels, done
+                inferred_spp_logits = spp_logits[0].argmax(0)
+                query_fn_coords = torch.nonzero((inferred_spp_logits != s_label_downsampled)&(s_label_downsampled == 1))
+                query_fp_coords = torch.nonzero((inferred_spp_logits != s_label_downsampled)&(s_label_downsampled == 0))
+                pos_coords = torch.nonzero((inferred_spp_logits == s_label_downsampled)&(s_label_downsampled == 1))
+                neg_coords = torch.nonzero((inferred_spp_logits == s_label_downsampled)&(s_label_downsampled == 0))
+                if query_fn_coords.size(0) < pos_coords.size(0):
+                    topk_1_indices = np.random.choice(pos_coords.size()[0], query_fn_coords.size(0), replace=False)
+                else:
+                    topk_1_indices = None
+                if query_fp_coords.size(0) < neg_coords.size(0):
+                    topk_0_indices = np.random.choice(neg_coords.size()[0], query_fp_coords.size(0), replace=False)
+                else:
+                    topk_0_indices = None
+                # TODO: 1.2 add infoNCE loss on q, p, n
+                info_loss = None
+                if topk_1_indices is not None and topk_0_indices is not None and len(topk_1_indices) > 1 and len(topk_0_indices) > 1:
+                    topk_1_pixels = torch.permute(s_hid[...,pos_coords[topk_1_indices][...,0],pos_coords[topk_1_indices][...,1]].squeeze(), (1,0))  # p
+                    topk_0_pixels = torch.permute(s_hid[...,neg_coords[topk_0_indices][...,0],neg_coords[topk_0_indices][...,1]].squeeze(), (1,0))  # n
+                    q_fn_pixels = torch.permute(s_hid[...,query_fn_coords[...,0],query_fn_coords[...,1]].squeeze(),(1,0))  # q_fn
+                    info_loss_fn = self.infonce(q_fn_pixels, topk_1_pixels, topk_0_pixels)
+                    q_fp_pixels = torch.permute(s_hid[...,query_fp_coords[...,0],query_fp_coords[...,1]].squeeze(), (1,0))  # q_fp
+                    info_loss_fp = self.infonce(q_fp_pixels, topk_0_pixels, topk_1_pixels)
+                    info_loss = info_loss_fn + info_loss_fp
+                support_output = F.interpolate(
                     spp_logits, size=s_label.size()[2:],
                     mode='bilinear', align_corners=True
                 )
-                s_loss = criterion(output_support, s_label_reshape)
+                s_loss = criterion(support_output, s_label_reshape)
+                if info_loss:
+                    s_loss = s_loss + info_loss
+    
                 s_loss.backward()
                 optimizer.step()
-
+            
+            # slide = prs.slides.add_slide(blank_slide_layout)
+            # # 1. original image, 2. label mask, 3. inferred mask
+            # ori_img = plt.imread(s_image_path_list[0][0])
+            # fig, axs = plt.subplots(1,3,figsize=(10,3))
+            # modified_label = s_label_downsampled[0][0].detach().cpu().numpy()
+            # modified_label[modified_label == 255] = 0
+            # axs[0].imshow(ori_img)
+            # axs[0].axis('off')
+            # axs[1].imshow(modified_label, cmap='viridis', alpha=0.4)
+            # axs[1].axis('off')
+            # axs[2].imshow(spp_logits[0].argmax(0).detach().cpu().numpy(), cmap='viridis', alpha=0.4)
+            # axs[2].axis('off')
+            # fig_filename = f'output/{i}_support.png'
+            # plt.savefig(fig_filename)
+            # plt.close()
+            # pic = slide.shapes.add_picture(fig_filename, left, top)
+            # if i > 10:
+            #     break
             # Phase 2: Train the transformer to update the classifier's weights
             # Inputs of the transformer: weights of classifier trained on support sets, features of the query sample.
             # Dynamic class weights used for query image only during training
@@ -253,14 +293,15 @@ class Trainer:
                 mode='bilinear', align_corners=True
             )
 
-            loss_q = criterion(pred_q, q_label.long())
+            q_loss = criterion(pred_q, q_label.long())
 
             self.optimizer.zero_grad()
-            loss_q.backward()
+            q_loss.backward()
             self.optimizer.step()
 
-            pbar.set_description(f'e: {epoch}; iter: {i}; loss: {loss_q:.3f}')
+            pbar.set_description(f'e: {epoch}/{self.args.epochs}; iter: {i}; s_loss:{s_loss:.3f}, q_loss: {q_loss:.3f}')
 
+        # prs.save(f'output/test.pptx')
         torch.cuda.empty_cache()
         # return lr
 
@@ -275,6 +316,7 @@ class Trainer:
     def train(self,):
         for epoch in range(self.args.epochs):
             self.train_epoch(epoch)
+            # exit()
             if self.gpu_id == 0 and epoch % self.args.save_every == 0 and self.args.snapshot_path:
                 self._save_snapshot(epoch)
             if epoch % self.args.eval_interval == 0:

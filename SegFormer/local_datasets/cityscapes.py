@@ -214,7 +214,7 @@ class EpisodicIndoorTrav(Dataset):
         support_labels = support_label_list.copy()
 
         # Forward images through transforms
-        if self.transform is not None:
+        if self.transform is not None:  # 255 is padding, Resize is not cropping
             qry_img, target = self.transform(image, label)
             for k in range(shot):
                 support_image_list[k], support_label_list[k] = self.transform(support_image_list[k], support_label_list[k])

@@ -10,7 +10,7 @@ from torch import nn, Tensor
 from torch.autograd import profiler
 from typing import Union
 from torch import distributed as dist
-from tabulate import tabulate
+# from tabulate import tabulate
 
 
 def fix_seeds(seed: int = 3407) -> None:
