@@ -70,13 +70,11 @@ def get_argparser():
     # parser.add_argument("--model", type=str, default='make_SegFormerB1', help='model name')
     parser.add_argument("--bottleneck_dim", type=int, default=768)
     parser.add_argument("--heads", type=int, default=1)
-    # parser.add_argument("--num_classes_tr", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.5)
 
     # Train Options
     parser.add_argument("--amp", type=bool, default=False, help='auto mixture precision, do not use') # There may be some problems when loading weights, such as: ComplexFloat
     parser.add_argument("--epochs", type=int, default=20, help='total training epochs')
-    parser.add_argument("--topk", type=int, default=10, help='topk pos/neg pixels')
     parser.add_argument("--device", type=str, default='cuda:0', help='device (cuda:0 or cpu)')
     parser.add_argument("--workers", type=int, default=4,
                         help='workers, set it equal 0 when run programs in win platform')
@@ -216,7 +214,7 @@ class Trainer:
                     topk_0_indices = np.random.choice(neg_coords.size()[0], query_fp_coords.size(0), replace=False)
                 else:
                     topk_0_indices = None
-                # TODO: 1.2 add infoNCE loss on q, p, n
+                # 1.2 add infoNCE loss on q, p, n
                 info_loss = None
                 if topk_1_indices is not None and topk_0_indices is not None and len(topk_1_indices) > 1 and len(topk_0_indices) > 1:
                     topk_1_pixels = torch.permute(s_hid[...,pos_coords[topk_1_indices][...,0],pos_coords[topk_1_indices][...,1]].squeeze(), (1,0))  # p
@@ -324,7 +322,7 @@ class Trainer:
                 val_info = str(confmat)
                 print(val_info)
 
-        confmat = self.eval()
+        confmat = self.eval(self.args.epochs)
         val_info = str(confmat)
         print(val_info)
 

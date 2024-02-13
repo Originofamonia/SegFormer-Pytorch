@@ -50,7 +50,7 @@ def get_argparser():
     parser.add_argument("--dataset", type=str, default='trav',choices=['cityscapes', 'trav'], help='Name of dataset')
     parser.add_argument("--num_classes", type=int, default=2, help="num classes (default: None)")
     parser.add_argument("--pin_mem", type=bool, default=True, help="Dataloader ping_memory")
-    parser.add_argument("--batch_size", type=int, default=4,help='batch size (zeus:10, poseidon:4)')
+    parser.add_argument("--batch_size", type=int, default=2,help='batch size (zeus:10, poseidon:4)')
     parser.add_argument("--val_batch_size", type=int, default=4,help='batch size for validation')
 
     # SegFormer Options
