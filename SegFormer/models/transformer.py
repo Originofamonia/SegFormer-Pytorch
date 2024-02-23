@@ -76,4 +76,3 @@ class MultiHeadAttentionOne(nn.Module):
         output = self.layer_norm(output + residual)
 
         return output
-

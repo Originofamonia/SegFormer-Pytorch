@@ -288,11 +288,29 @@ def trav_val_loader(args: argparse.Namespace) -> torch.utils.data.DataLoader:
         Build the episodic validation loader.
     """
     assert args.test_split in [0, 1, 2, 3, -1, 'default']
-    val_transform = transform.Compose([
-            transform.Resize(args.image_size),
-            transform.ToTensor(),
-            transform.Normalize(mean=args.mean, std=args.std)
-    ])
+    aug_dic = {
+        'randscale': transform.RandScale([args.scale_min, args.scale_max]),
+        'randrotate': transform.RandRotate(
+            [args.rot_min, args.rot_max],
+            padding=[0 for x in args.mean],
+            ignore_label=255
+        ),
+        'hor_flip': transform.RandomHorizontalFlip(),
+        'vert_flip': transform.RandomVerticalFlip(),
+        'crop': transform.Crop(
+            args.image_size, crop_type='rand',
+            padding=[0 for x in args.mean], ignore_label=255
+        ),
+        'resize': transform.Resize(args.image_size)
+    }
+    val_transform = [aug_dic[name] for name in args.augmentations]
+    val_transform += [transform.ToTensor(), transform.Normalize(mean=args.mean, std=args.std)]
+    val_transform = transform.Compose(val_transform)
+    # val_transform = transform.Compose([
+    #         transform.Resize(args.image_size),
+    #         transform.ToTensor(),
+    #         transform.Normalize(mean=args.mean, std=args.std)
+    # ])
     val_sampler = None
 
     # ====== Filter out classes seen during training ======
