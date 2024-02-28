@@ -4,7 +4,10 @@ https://huggingface.co/blog/fine-tune-segformer
 torchrun --standalone --nproc_per_node=gpu SegFormer/segformer_trav_ddp.py
 Few-shot training of segformer on trav dataset.
 Freeze segformer, only finetune the fusion transformer model
+Change data_root:
 /home/qiyuan/2023spring/segmentation_indoor_images
+/mnt/hdd/segmentation_indoor_images
+
 """
 import os
 from pptx import Presentation
