@@ -112,7 +112,7 @@ def get_argparser():
     parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")
     parser.add_argument("--load_pretrained", type=bool, default=True)
     parser.add_argument("--pretrained_path", type=str, default='nvidia/segformer-b3-finetuned-cityscapes-1024-1024')
-    parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs_infonce.pt')
+    parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs_cpc')
     return parser
 
 class Trainer:
@@ -326,7 +326,7 @@ class Trainer:
     def train(self,):
         for epoch in range(self.args.epochs):
             self.train_epoch(epoch)
-            if self.gpu_id == 0 and epoch % self.args.save_every == 0 and self.args.snapshot_path:
+            if epoch % self.args.save_every == 0 and self.args.snapshot_path:
                 self._save_snapshot(epoch)
             if epoch % self.args.eval_interval == 0:
                 confmat = self.eval(epoch)
