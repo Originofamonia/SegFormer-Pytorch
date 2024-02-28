@@ -226,7 +226,8 @@ class EpisodicIndoorTrav(Dataset):
         spprt_labels = torch.cat(support_label_list, 0)
 
         return qry_img, target, spprt_imgs, spprt_labels, subcls_list, \
-               [support_image_path_list, support_labels], [image_path, label]
+            [support_image_path_list, support_label_path_list, support_labels], \
+            [image_path, label_path, label]
 
     def __len__(self):
         return len(self.data_list)

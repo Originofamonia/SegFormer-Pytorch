@@ -172,7 +172,7 @@ class Trainer:
         # blank_slide_layout = prs.slide_layouts[6]
         # left = top = Inches(1)
         for i, batch in enumerate(pbar):
-            q_img, q_label, spp_imgs, s_label, _, (s_image_path_list, s_labels), _ = batch
+            q_img, q_label, spp_imgs, s_label, _, _, _ = batch
             q_img = q_img.to(self.gpu_id)
             q_label = q_label.to(self.gpu_id)
             spp_imgs = spp_imgs.to(self.gpu_id)
@@ -218,11 +218,11 @@ class Trainer:
                 # 1.2 add infoNCE loss on q, p, n
                 info_loss = None
                 if topk_1_indices is not None and topk_0_indices is not None and len(topk_1_indices) > 1 and len(topk_0_indices) > 1:
-                    topk_1_pixels = torch.permute(s_hid[...,pos_coords[topk_1_indices][...,0],pos_coords[topk_1_indices][...,1]].squeeze(), (1,0))  # p
-                    topk_0_pixels = torch.permute(s_hid[...,neg_coords[topk_0_indices][...,0],neg_coords[topk_0_indices][...,1]].squeeze(), (1,0))  # n
-                    q_fn_pixels = torch.permute(s_hid[...,query_fn_coords[...,0],query_fn_coords[...,1]].squeeze(),(1,0))  # q_fn
+                    topk_1_pixels = torch.permute(spp_logits[...,pos_coords[topk_1_indices][...,0],pos_coords[topk_1_indices][...,1]].squeeze(), (1,0))  # p
+                    topk_0_pixels = torch.permute(spp_logits[...,neg_coords[topk_0_indices][...,0],neg_coords[topk_0_indices][...,1]].squeeze(), (1,0))  # n
+                    q_fn_pixels = torch.permute(spp_logits[...,query_fn_coords[...,0],query_fn_coords[...,1]].squeeze(),(1,0))  # q_fn
                     info_loss_fn = self.infonce(q_fn_pixels, topk_1_pixels, topk_0_pixels)
-                    q_fp_pixels = torch.permute(s_hid[...,query_fp_coords[...,0],query_fp_coords[...,1]].squeeze(), (1,0))  # q_fp
+                    q_fp_pixels = torch.permute(spp_logits[...,query_fp_coords[...,0],query_fp_coords[...,1]].squeeze(), (1,0))  # q_fp
                     info_loss_fp = self.infonce(q_fp_pixels, topk_0_pixels, topk_1_pixels)
                     info_loss = info_loss_fn + info_loss_fp
                 support_output = F.interpolate(
@@ -321,15 +321,14 @@ class Trainer:
         print(f"Epoch {epoch} | Training snapshot saved at {save_path}")
 
     def train(self,):
-        # for epoch in range(self.args.epochs):
-        #     self.train_epoch(epoch)
-        #     # exit()
-        #     if self.gpu_id == 0 and epoch % self.args.save_every == 0 and self.args.snapshot_path:
-        #         self._save_snapshot(epoch)
-        #     if epoch % self.args.eval_interval == 0:
-        #         confmat = self.eval(epoch)
-        #         val_info = str(confmat)
-        #         print(val_info)
+        for epoch in range(self.args.epochs):
+            self.train_epoch(epoch)
+            if self.gpu_id == 0 and epoch % self.args.save_every == 0 and self.args.snapshot_path:
+                self._save_snapshot(epoch)
+            if epoch % self.args.eval_interval == 0:
+                confmat = self.eval(epoch)
+                val_info = str(confmat)
+                print(val_info)
 
         confmat = self.eval(self.args.epochs)
         val_info = str(confmat)

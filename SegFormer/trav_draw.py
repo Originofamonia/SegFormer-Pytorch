@@ -4,6 +4,7 @@ https://huggingface.co/blog/fine-tune-segformer
 torchrun --standalone --nproc_per_node=gpu SegFormer/segformer_trav_ddp.py
 Draw
 """
+import re
 import os
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -107,8 +108,8 @@ def get_argparser():
     parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")
     parser.add_argument("--load_pretrained", type=bool, default=True)
     parser.add_argument("--pretrained_path", type=str, default='nvidia/segformer-b3-finetuned-cityscapes-1024-1024')
-    parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs_infonce_18.pt')
-    parser.add_argument("--column", type=str, default='fs_18')
+    parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs_infonce_10.pt')
+    parser.add_argument("--column", type=str, default='fs_10')
     return parser
 
 class Trainer:
@@ -173,6 +174,9 @@ class Trainer:
             print(f"Directory '{path}' already exists.")
 
     def infer(self):
+        """
+        save inferred masks from finetuned models
+        """
         self.confmat.reset()
         self.model.train()
         self.transformer.eval()
@@ -190,7 +194,7 @@ class Trainer:
             
             # Phase 1: Train a new binary classifier on support samples.
             binary_classifier = self.model.decode_head.classifier
-            optimizer = SGD(binary_classifier.parameters(), lr=args.lr)
+            optimizer = SGD(binary_classifier.parameters(), lr=self.args.lr)
             # Dynamic class weights
             s_label_arr = s_label.cpu().numpy().copy()  # [n_task, n_shots, img_size, img_size]
             back_pix = np.where(s_label_arr == 0)
@@ -204,7 +208,7 @@ class Trainer:
             )
             _, s_hid = self.model(spp_imgs_reshape)  # [n_task, c, h, w]
 
-            for index in range(args.adapt_iter):
+            for index in range(self.args.adapt_iter):
                 optimizer.zero_grad()
                 spp_logits = binary_classifier(s_hid)
                 output_support = F.interpolate(
@@ -229,7 +233,7 @@ class Trainer:
 
             # Build a temporary new classifier for prediction
             pseudo_cls = nn.Conv2d(
-                args.bottleneck_dim, args.num_classes, kernel_size=1, bias=False
+                self.args.bottleneck_dim, self.args.num_classes, kernel_size=1, bias=False
             ).to(self.gpu_id)
 
             pseudo_cls.weight.data = torch.as_tensor(
@@ -248,15 +252,228 @@ class Trainer:
     
     def draw_pptx(self,):
         """
-        each 
+        each ppt page: 0,4,6,10,16,18
         """
+        prs = Presentation()
+        prs.slide_width = Inches(16)
+        prs.slide_height = Inches(9)
+        blank_slide_layout = prs.slide_layouts[6]
+        left = top = Inches(0.1)
+        top_2 = Inches(6)
+        top_3 = Inches(8)
+        alpha = 0.6
+        width = Inches(14.0)
+        height = Inches(1.2)
+        pbar = tqdm(self.valloader)
+        for i, batch in enumerate(pbar):
+            _, _, _, _, _, spp_oris, q_oris = batch
+            q_pred_filename = q_oris[0][0].split('/')[-1].strip('.jpg')
+            s_filename = spp_oris[0][0][0]
+            fs_0_filename = f'output/fs_0/{q_pred_filename}_fs_0.npy'
+            fs_4_filename = f'output/fs_4/{q_pred_filename}_fs_4.npy'
+            fs_6_filename = f'output/fs_6/{q_pred_filename}_fs_6.npy'
+            fs_10_filename = f'output/fs_10/{q_pred_filename}_fs_10.npy'
+            fs_16_filename = f'output/fs_16/{q_pred_filename}_fs_16.npy'
+            fs_18_filename = f'output/fs_18/{q_pred_filename}_fs_18.npy'
+            slide = prs.slides.add_slide(blank_slide_layout)
+            fig, axs = plt.subplots(2, 5, figsize=(14, 6))  # w,h
+            q_img = plt.imread(q_oris[0][0])
+            q_target = np.load(q_oris[1][0])
+            s_img = plt.imread(s_filename)
+            s_target = np.load(spp_oris[1][0][0])
+            fs_0 = np.load(fs_0_filename)
+            fs_4 = np.load(fs_4_filename)
+            fs_6 = np.load(fs_6_filename)
+            fs_10 = np.load(fs_10_filename)
+            fs_16 = np.load(fs_16_filename)
+            fs_18 = np.load(fs_18_filename)
+            
+            axs[0,0].imshow(s_img)
+            axs[0,0].set_title(f's_img')
+            axs[0,0].axis('off')
+            
+            axs[1,0].imshow(s_img)
+            axs[1,0].imshow(s_target, cmap='viridis', alpha=alpha)
+            axs[1,0].set_title(f's_target')
+            axs[1,0].axis('off')
+
+            axs[0,1].imshow(q_img)
+            axs[0,1].set_title(f'q_img')
+            axs[0,1].axis('off')
+            
+            axs[1,1].imshow(q_img)
+            axs[1,1].imshow(q_target, cmap='viridis', alpha=alpha)
+            axs[1,1].set_title(f'q_target')
+            axs[1,1].axis('off')
+
+            axs[0,2].imshow(q_img)
+            axs[0,2].imshow(fs_0, cmap='viridis', alpha=alpha)
+            axs[0,2].set_title(f'fs_0')
+            axs[0,2].axis('off')
+
+            axs[0,3].imshow(q_img)
+            axs[0,3].imshow(fs_4, cmap='viridis', alpha=alpha)
+            axs[0,3].set_title(f'fs_4')
+            axs[0,3].axis('off')
+
+            axs[0,4].imshow(q_img)
+            axs[0,4].imshow(fs_6, cmap='viridis', alpha=alpha)
+            axs[0,4].set_title(f'fs_6')
+            axs[0,4].axis('off')
+
+            axs[1,2].imshow(q_img)
+            axs[1,2].imshow(fs_10, cmap='viridis', alpha=alpha)
+            axs[1,2].set_title(f'fs_10')
+            axs[1,2].axis('off')
+
+            axs[1,3].imshow(q_img)
+            axs[1,3].imshow(fs_16, cmap='viridis', alpha=alpha)
+            axs[1,3].set_title(f'fs_16')
+            axs[1,3].axis('off')
+
+            axs[1,4].imshow(q_img)
+            axs[1,4].imshow(fs_18, cmap='viridis', alpha=alpha)
+            axs[1,4].set_title(f'fs_18')
+            axs[1,4].axis('off')
+            plt.subplots_adjust(hspace=0.01, wspace=0.01)
+            img_filename = f'output/pptx/{q_pred_filename}.png'
+            fig.savefig(img_filename, bbox_inches='tight', pad_inches=0)
+            plt.close()
+            pic = slide.shapes.add_picture(img_filename, left, top)
+            text_box = slide.shapes.add_textbox(left, top_2, width, height)
+
+            # Get the text frame within the text box
+            tf = text_box.text_frame
+
+            # Add a paragraph to the text frame
+            p = tf.add_paragraph()
+            p.text = f'q: {q_oris[0][0]};\n s: {s_filename}'
+        
+        prs.save(f'output/different_models.pptx')
+
+# Use Computer Modern font
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.serif'] = ['Computer Modern Roman']
+plt.rcParams['text.usetex'] = True
+
+def draw_qual():
+    pos_files = ['/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300444727277987.jpg',
+                 '/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303453189311735.jpg',
+                 '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556043781475060.jpg',
+                 '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661555947496401064.jpg',
+                 '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556434679290525.jpg',
+                 '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661555874275943510.jpg']
+    neg_files = ['/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556016257148735.jpg',
+                 '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661555927693561069.jpg',]
+    font_size = 6
+    alpha = 0.6
+    fig, axs = plt.subplots(6, 4, figsize=(6.5, 7.5))  # w, h
+    for i, img in enumerate(pos_files):
+        ori_img = plt.imread(img)
+        q_pred_filename = img.split('/')[-1].strip('.jpg')
+        target_filename = img.replace('/images', '/labels', 1)
+        target_filename = target_filename.replace('.jpg', '.npy')
+        fs_0_filename = f'output/fs_0/{q_pred_filename}_fs_0.npy'
+        fs_18_filename = f'output/fs_18/{q_pred_filename}_fs_18.npy'
+        target = np.load(target_filename)
+        fs_0 = np.load(fs_0_filename)
+        fs_18 = np.load(fs_18_filename)
+        axs[i,0].imshow(ori_img)
+        axs[i,0].axis('off')
+        
+        axs[i,1].imshow(ori_img)
+        axs[i,1].imshow(target, cmap='viridis', alpha=alpha)
+        axs[i,1].axis('off')
+
+        axs[i,2].imshow(ori_img)
+        axs[i,2].imshow(fs_0, cmap='viridis', alpha=alpha)
+        axs[i,2].axis('off')
+
+        axs[i,3].imshow(ori_img)
+        axs[i,3].imshow(fs_18, cmap='viridis', alpha=alpha)
+        axs[i,3].axis('off')
+    column_text = ["Query", 'Target', 'FSS', 'FSS+CPC (ours)']
+    for j in range(4):
+        axs[0, j].text(0.5, 1.1, f'{column_text[j]}', ha='center', va='center', transform=axs[0, j].transAxes, fontsize=font_size)
+    
+    # Adjust layout for better spacing
+    plt.subplots_adjust(hspace=0.05, wspace=0.05)
+    img_filename = f'output/qualitative/positive.pdf'
+    fig.savefig(img_filename, bbox_inches='tight', pad_inches=0.05)
+    plt.close()
+
+    fig, axs = plt.subplots(2, 4, figsize=(6, 2.3))  # w, h
+    for i, img in enumerate(neg_files):
+        ori_img = plt.imread(img)
+        q_pred_filename = img.split('/')[-1].strip('.jpg')
+        target_filename = img.replace('/images', '/labels', 1)
+        target_filename = target_filename.replace('.jpg', '.npy')
+        fs_0_filename = f'output/fs_0/{q_pred_filename}_fs_0.npy'
+        fs_18_filename = f'output/fs_18/{q_pred_filename}_fs_18.npy'
+        target = np.load(target_filename)
+        fs_0 = np.load(fs_0_filename)
+        fs_18 = np.load(fs_18_filename)
+        axs[i,0].imshow(ori_img)
+        axs[i,0].axis('off')
+
+        axs[i,1].imshow(ori_img)
+        axs[i,1].imshow(target, cmap='viridis', alpha=alpha)
+        axs[i,1].axis('off')
+
+        axs[i,2].imshow(ori_img)
+        axs[i,2].imshow(fs_0, cmap='viridis', alpha=alpha)
+        axs[i,2].axis('off')
+
+        axs[i,3].imshow(ori_img)
+        axs[i,3].imshow(fs_18, cmap='viridis', alpha=alpha)
+        axs[i,3].axis('off')
+    
+    for j in range(4):
+        axs[0, j].text(0.5, 1.1, f'{column_text[j]}', ha='center', va='center', transform=axs[0, j].transAxes, fontsize=font_size)
+    
+    # Adjust layout for better spacing
+    plt.subplots_adjust(hspace=0.05, wspace=0.05)
+    img_filename = f'output/qualitative/negative.pdf'
+    fig.savefig(img_filename, bbox_inches='tight', pad_inches=0.05)
+    plt.close()
+
+
+def draw_arch_cpc():
+    q_img = '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556141830365889.jpg'
+    q_pred_filename = q_img.split('/')[-1].strip('.jpg')
+    q_target_filename = q_img.replace('/images', '/labels', 1)
+    q_target_filename = q_target_filename.replace('.jpg', '.npy')
+    q_fs_0_filename = f'output/fs_18/{q_pred_filename}_fs_18.npy'
+    q_target = np.load(q_target_filename)
+    q_pred = np.load(q_fs_0_filename)
+    q_diff = q_target - q_pred
+    s_img = '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661555948062233679.jpg'
+    s_pred_filename = s_img.split('/')[-1].strip('.jpg')
+    s_target_filename = s_img.replace('/images', '/labels', 1)
+    s_target_filename = s_target_filename.replace('.jpg', '.npy')
+    s_fs_0_filename = f'output/fs_18/{s_pred_filename}_fs_18.npy'
+    s_target = np.load(s_target_filename)
+    s_pred = np.load(s_fs_0_filename)
+    s_diff = s_target - s_pred
+    s_color = np.zeros_like(s_diff)
+    # Assign different values based on TP, TN, FP, FN
+    s_color[(s_target == 1) & (s_pred == 1)] = 3  # True Positive (TP)
+    s_color[(s_target == 0) & (s_pred == 0)] = 0  # True Negative (TN)
+    s_color[(s_target == 0) & (s_pred == 1)] = 1  # False Positive (FP)
+    s_color[(s_target == 1) & (s_pred == 0)] = 2  # False Negative (FN)
+    fig, ax = plt.subplots()
+    im = ax.imshow(s_color, cmap='Accent', alpha=0.9)
+    ax.axis('off')
+    img_filename = f'output/qualitative/s_contrast_18.png'
+    fig.savefig(img_filename, bbox_inches='tight', pad_inches=0.0)
 
 
 def main(args):
     if args.DDP:
         ddp_setup()
     trainer = Trainer(args)
-    trainer.infer()
+    # trainer.infer()
+    trainer.draw_pptx()
     if args.DDP:
         destroy_process_group()
 
@@ -266,3 +483,5 @@ if __name__ == '__main__':
         'Pytorch SegFormer Models training and evaluation script', parents=[get_argparser()])
     args = parser.parse_args()
     main(args)
+    # draw_qual()
+    # draw_arch_cpc()
