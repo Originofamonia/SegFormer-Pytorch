@@ -325,14 +325,14 @@ class Trainer:
         print(f"Epoch {epoch} | Training snapshot saved at {save_path}")
 
     def train(self,):
-        # for epoch in range(self.args.epochs):
-        #     self.train_epoch(epoch)
-        #     if epoch % self.args.save_every == 0 and self.args.snapshot_path:
-        #         self._save_snapshot(epoch)
-        #     if epoch % self.args.eval_interval == 0:
-        #         confmat = self.eval(epoch)
-        #         val_info = str(confmat)
-        #         print(val_info)
+        for epoch in range(self.args.epochs):
+            self.train_epoch(epoch)
+            if epoch % self.args.save_every == 0 and self.args.snapshot_path:
+                self._save_snapshot(epoch)
+            if epoch % self.args.eval_interval == 0:
+                confmat = self.eval(epoch)
+                val_info = str(confmat)
+                print(val_info)
 
         confmat = self.eval(self.args.epochs)
         val_info = str(confmat)
