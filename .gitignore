@@ -167,3 +167,4 @@ output/
 ADE20k_toy_dataset/
 data/
 save_weights/
+wandb/

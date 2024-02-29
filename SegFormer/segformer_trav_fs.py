@@ -28,6 +28,7 @@ from torch.optim import SGD
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, RandomSampler
 from torch.distributed import init_process_group, destroy_process_group
+import wandb
 
 from local_datasets.cityscapes import trav_train_loader, trav_val_loader
 from models.transformer import MultiHeadAttentionOne
@@ -324,20 +325,21 @@ class Trainer:
         print(f"Epoch {epoch} | Training snapshot saved at {save_path}")
 
     def train(self,):
-        for epoch in range(self.args.epochs):
-            self.train_epoch(epoch)
-            if epoch % self.args.save_every == 0 and self.args.snapshot_path:
-                self._save_snapshot(epoch)
-            if epoch % self.args.eval_interval == 0:
-                confmat = self.eval(epoch)
-                val_info = str(confmat)
-                print(val_info)
+        # for epoch in range(self.args.epochs):
+        #     self.train_epoch(epoch)
+        #     if epoch % self.args.save_every == 0 and self.args.snapshot_path:
+        #         self._save_snapshot(epoch)
+        #     if epoch % self.args.eval_interval == 0:
+        #         confmat = self.eval(epoch)
+        #         val_info = str(confmat)
+        #         print(val_info)
 
         confmat = self.eval(self.args.epochs)
         val_info = str(confmat)
         print(val_info)
 
     def eval(self, epoch):
+        print(self.args.train_scenes, self.args.val_scenes)
         self.confmat.reset()
         self.model.train()
         self.transformer.eval()
@@ -407,7 +409,25 @@ class Trainer:
             pbar.set_description(f'Epoch: {epoch}, eval iter: {i}')
 
         self.confmat.reduce_from_all_processes()
+        self.wandb_log(self.confmat, epoch, self.args)
         return self.confmat
+    
+    def wandb_log(self, confmat, epoch, args):
+        acc_global, acc, iu = confmat.compute()
+        miou = iu.mean().item() * 100
+        acc_global = acc_global.item() * 100
+        acc = [x.item() for x in acc * 100]
+        iu = [x.item() for x in iu * 100]
+        log_dict = {'epoch': epoch, 'miou': miou, 'acc_global': acc_global,}
+        log_dict['train_scenes'] = args.train_scenes[0]
+        log_dict['val_scenes'] = ';'.join(args.val_scenes)
+        for i,v in enumerate(acc):
+            log_dict[f'acc_{i}'] = v
+        
+        for i,v in enumerate(iu):
+            log_dict[f'iu_{i}'] = v
+        
+        wandb.log(log_dict)
 
 
 def main(args):
@@ -423,4 +443,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         'Pytorch SegFormer Models training and evaluation script', parents=[get_argparser()])
     args = parser.parse_args()
-    main(args)
+    wandb.init(
+        project=f'FSS_logits_align',
+        config=args
+    )
+    for i, scene in enumerate(args.scenes):
+        others = args.scenes[:i] + args.scenes[i+1:]  # yes
+        args.train_scenes = [scene]
+        args.val_scenes = others
+        main(args)

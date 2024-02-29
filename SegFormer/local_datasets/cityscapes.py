@@ -137,9 +137,12 @@ class EpisodicIndoorTrav(Dataset):
         self.root = args.data_root
         self.split = split
         self.transform = transform
-        self.scenes = args.scenes
+        if split == 'train':
+            self.scenes = args.train_scenes
+        else:
+            self.scenes = args.val_scenes
         self.class_list = class_list
-        self.data_list, self.sub_class_file_list = make_trav_dataset(args.data_root, args.scenes, split, self.class_list)
+        self.data_list, self.sub_class_file_list = make_trav_dataset(args.data_root, self.scenes, split, self.class_list)
     
     def __getitem__(self, index) -> Any:
         # ====== Read query image + Chose class ======
