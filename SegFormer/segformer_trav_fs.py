@@ -110,7 +110,7 @@ def get_argparser():
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--save_dir", type=str, default='./', help='SummaryWriter save dir')
     parser.add_argument("--eval_interval", type=int, default=2, help="evaluation interval")
-    parser.add_argument("--save_every", type=int, default=2, help="evaluation interval")
+    parser.add_argument("--save_every", type=int, default=200, help="save interval")
     parser.add_argument("--load_pretrained", type=bool, default=True)
     parser.add_argument("--pretrained_path", type=str, default='nvidia/segformer-b3-finetuned-cityscapes-1024-1024')
     parser.add_argument("--snapshot_path", type=str, default='save_weights/trav_fs_cpc')
@@ -204,38 +204,39 @@ class Trainer:
             for index in range(args.adapt_iter):
                 optimizer.zero_grad()
                 spp_logits = self.model.decode_head.classifier(s_hid)
-
-                # 1.1 find FP, FN pixels, topk pos, topk neg pixels, done
-                inferred_spp_logits = spp_logits[0].argmax(0)
-                query_fn_coords = torch.nonzero((inferred_spp_logits != s_label_downsampled)&(s_label_downsampled == 1))
-                query_fp_coords = torch.nonzero((inferred_spp_logits != s_label_downsampled)&(s_label_downsampled == 0))
-                pos_coords = torch.nonzero((inferred_spp_logits == s_label_downsampled)&(s_label_downsampled == 1))
-                neg_coords = torch.nonzero((inferred_spp_logits == s_label_downsampled)&(s_label_downsampled == 0))
-                if query_fn_coords.size(0) < pos_coords.size(0):
-                    topk_1_indices = np.random.choice(pos_coords.size()[0], query_fn_coords.size(0), replace=False)
-                else:
-                    topk_1_indices = None
-                if query_fp_coords.size(0) < neg_coords.size(0):
-                    topk_0_indices = np.random.choice(neg_coords.size()[0], query_fp_coords.size(0), replace=False)
-                else:
-                    topk_0_indices = None
-                # 1.2 add infoNCE loss on q, p, n
-                info_loss = None
-                if topk_1_indices is not None and topk_0_indices is not None and len(topk_1_indices) > 1 and len(topk_0_indices) > 1:
-                    topk_1_pixels = torch.permute(spp_logits[...,pos_coords[topk_1_indices][...,0],pos_coords[topk_1_indices][...,1]].squeeze(), (1,0))  # p
-                    topk_0_pixels = torch.permute(spp_logits[...,neg_coords[topk_0_indices][...,0],neg_coords[topk_0_indices][...,1]].squeeze(), (1,0))  # n
-                    q_fn_pixels = torch.permute(spp_logits[...,query_fn_coords[...,0],query_fn_coords[...,1]].squeeze(),(1,0))  # q_fn
-                    info_loss_fn = self.infonce(q_fn_pixels, topk_1_pixels, topk_0_pixels)
-                    q_fp_pixels = torch.permute(spp_logits[...,query_fp_coords[...,0],query_fp_coords[...,1]].squeeze(), (1,0))  # q_fp
-                    info_loss_fp = self.infonce(q_fp_pixels, topk_0_pixels, topk_1_pixels)
-                    info_loss = info_loss_fn + info_loss_fp
                 support_output = F.interpolate(
                     spp_logits, size=s_label.size()[2:],
                     mode='bilinear', align_corners=True
                 )
                 s_loss = criterion(support_output, s_label_reshape)
-                if info_loss:
-                    s_loss = s_loss + info_loss
+                info_loss = None
+
+                ##### 1.1 find FP, FN pixels, topk pos, topk neg pixels, done
+                # inferred_spp_logits = spp_logits[0].argmax(0)
+                # query_fn_coords = torch.nonzero((inferred_spp_logits != s_label_downsampled)&(s_label_downsampled == 1))
+                # query_fp_coords = torch.nonzero((inferred_spp_logits != s_label_downsampled)&(s_label_downsampled == 0))
+                # pos_coords = torch.nonzero((inferred_spp_logits == s_label_downsampled)&(s_label_downsampled == 1))
+                # neg_coords = torch.nonzero((inferred_spp_logits == s_label_downsampled)&(s_label_downsampled == 0))
+                # if query_fn_coords.size(0) < pos_coords.size(0):
+                #     topk_1_indices = np.random.choice(pos_coords.size()[0], query_fn_coords.size(0), replace=False)
+                # else:
+                #     topk_1_indices = None
+                # if query_fp_coords.size(0) < neg_coords.size(0):
+                #     topk_0_indices = np.random.choice(neg_coords.size()[0], query_fp_coords.size(0), replace=False)
+                # else:
+                #     topk_0_indices = None
+                # # 1.2 add infoNCE loss on q, p, n
+                # if topk_1_indices is not None and topk_0_indices is not None and len(topk_1_indices) > 1 and len(topk_0_indices) > 1:
+                #     topk_1_pixels = torch.permute(spp_logits[...,pos_coords[topk_1_indices][...,0],pos_coords[topk_1_indices][...,1]].squeeze(), (1,0))  # p
+                #     topk_0_pixels = torch.permute(spp_logits[...,neg_coords[topk_0_indices][...,0],neg_coords[topk_0_indices][...,1]].squeeze(), (1,0))  # n
+                #     q_fn_pixels = torch.permute(spp_logits[...,query_fn_coords[...,0],query_fn_coords[...,1]].squeeze(),(1,0))  # q_fn
+                #     info_loss_fn = self.infonce(q_fn_pixels, topk_1_pixels, topk_0_pixels)
+                #     q_fp_pixels = torch.permute(spp_logits[...,query_fp_coords[...,0],query_fp_coords[...,1]].squeeze(), (1,0))  # q_fp
+                #     info_loss_fp = self.infonce(q_fp_pixels, topk_0_pixels, topk_1_pixels)
+                #     info_loss = info_loss_fn + info_loss_fp
+                
+                # if info_loss:
+                #     s_loss = s_loss + info_loss
     
                 s_loss.backward()
                 optimizer.step()
@@ -419,7 +420,7 @@ class Trainer:
         acc = [x.item() for x in acc * 100]
         iu = [x.item() for x in iu * 100]
         log_dict = {'epoch': epoch, 'miou': miou, 'acc_global': acc_global,}
-        log_dict['train_scenes'] = args.train_scenes[0]
+        log_dict['train_scenes'] = ';'.join(args.train_scenes)
         log_dict['val_scenes'] = ';'.join(args.val_scenes)
         for i,v in enumerate(acc):
             log_dict[f'acc_{i}'] = v
