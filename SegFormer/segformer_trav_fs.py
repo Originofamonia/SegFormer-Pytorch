@@ -50,7 +50,7 @@ def get_argparser():
 
     # Datset Options
     parser.add_argument("--data_root", type=str, default='/mnt/hdd/segmentation_indoor_images',help="path to Dataset")
-    parser.add_argument("--scenes", type=list, default=['elb', 'erb', 'uc', 'woh'],
+    parser.add_argument("--scenes", type=list, default=['elb', 'erb', 'uc', 'wh'],
                         choices=['elb', 'erb', 'uc', 'nh', 'woh'], help='Name of dataset')
     parser.add_argument("--image_size", type=list, default=480, help="input size, [480, 640]")
     parser.add_argument("--ignore_label", type=int, default=255, help="path to Dataset")

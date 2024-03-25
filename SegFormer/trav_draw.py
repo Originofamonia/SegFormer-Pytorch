@@ -14,6 +14,8 @@ from huggingface_hub import hf_hub_download
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from matplotlib.colors import ListedColormap
 from transformers import SegformerForSemanticSegmentation
 import multiprocessing as mp
 from tqdm import tqdm
@@ -437,6 +439,322 @@ def draw_qual():
     fig.savefig(img_filename, bbox_inches='tight', pad_inches=0.05)
     plt.close()
 
+def get_yellow():
+    # Get the Viridis colormap
+    viridis_cmap = plt.get_cmap('viridis')
+
+    # Obtain the color for yellow (high value in the colormap)
+    yellow_color = viridis_cmap(1.0)
+
+    # Convert RGBA to HEX color code
+    yellow_hex = mcolors.to_hex(yellow_color)
+
+    # Print the color code
+    print("Yellow color code in Viridis:", yellow_hex)  # #fde725
+
+
+def draw_qual_0304():
+    colors = ['#00000000', 'lime']
+    cmap = ListedColormap(colors)
+    # [spp, q, baseline, ours]
+    pos_episodes = [('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303553135307543.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664301286559157841.jpg',
+        'fs_0', 'fs_6'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303504843058817.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300270528764717.jpg',
+        'fs_0','fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303553967347137.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300444693995945.jpg',
+        'fs_18','fs_10'),
+        # ('/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302793771607630.jpg',
+        # '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300491621773474.jpg',
+        # 'fs_6', 'fs_10'),
+        ('/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556085417260401.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300453480423920.jpg',
+        'fs_10', 'fs_16'),
+        ('/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556188158997051.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664301286426029913.jpg',
+        'fs_6', 'fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303453022932283.jpg',
+        '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661555923100682251.jpg',
+        'fs_18','fs_16'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303504976192228.jpg',
+        '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556164395643703.jpg',
+        'fs_16','fs_4')]
+    
+    font_size = 6
+    alpha = 0.7
+    column_text = ["Support", 'Query', 'FSS', 'FSS+CLA (ours)']
+    dpi = 200
+    fig, axs = plt.subplots(len(pos_episodes), 4, figsize=(5.5, 7.4), dpi=dpi)  # w, h
+    for i, episode in enumerate(pos_episodes):
+        q_img = plt.imread(episode[1])
+        s_img = plt.imread(episode[0])
+        q_pred_filename = episode[1].split('/')[-1].strip('.jpg')
+        q_target_filename = episode[1].replace('/images', '/labels', 1)
+        q_target_filename = q_target_filename.replace('.jpg', '.npy')
+        q_target = np.load(q_target_filename)
+
+        # s_pred_filename = episode[0].split('/')[-1].strip('.jpg')
+        s_target_filename = episode[0].replace('/images', '/labels', 1)
+        s_target_filename = s_target_filename.replace('.jpg', '.npy')
+        s_target = np.load(s_target_filename)
+
+        before_filename = f'output/{episode[2]}/{q_pred_filename}_{episode[2]}.npy'
+        after_filename = f'output/{episode[3]}/{q_pred_filename}_{episode[3]}.npy'
+        before = np.load(before_filename)
+        after = np.load(after_filename)
+        axs[i,0].imshow(s_img)
+        axs[i,0].imshow(s_target, cmap=cmap, alpha=alpha)
+        axs[i,0].axis('off')
+        
+        axs[i,1].imshow(q_img)
+        axs[i,1].imshow(q_target, cmap=cmap, alpha=alpha)
+        axs[i,1].axis('off')
+
+        axs[i,2].imshow(q_img)
+        axs[i,2].imshow(before, cmap=cmap, alpha=alpha)
+        axs[i,2].axis('off')
+
+        axs[i,3].imshow(q_img)
+        axs[i,3].imshow(after, cmap=cmap, alpha=alpha)
+        axs[i,3].axis('off')
+        axs[i,3].figure.dpi = dpi
+    
+    # for j in range(4):
+    #     axs[0, j].text(0.5, 1.1, f'{column_text[j]}', ha='center', va='center', transform=axs[0, j].transAxes, fontsize=font_size)
+    
+    # Adjust layout for better spacing
+    plt.subplots_adjust(hspace=0.01, wspace=0.01)
+    img_filename = f'output/qualitative/positive_notitle.pdf'
+    fig.savefig(img_filename, bbox_inches='tight', pad_inches=0.01, dpi=dpi)
+    plt.close()
+
+    neg_episodes = [
+        ('/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556043714904062.jpg',
+         '/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303504343839638.jpg',
+         'fs_6', 'fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303450227214090.jpg',
+         '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556009267979376.jpg',
+         'fs_4','fs_16'),
+        ('/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302793638480656.jpg',
+         '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556122859590761.jpg',
+         'fs_4', 'fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303451591746561.jpg',
+         '/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302839501178734.jpg',
+         'fs_6','fs_10')]
+    fig, axs = plt.subplots(len(neg_episodes), 4, figsize=(5.5, 4.2), dpi=dpi)  # w, h
+    for i, episode in enumerate(neg_episodes):
+        q_img = plt.imread(episode[1])
+        s_img = plt.imread(episode[0])
+        q_pred_filename = episode[1].split('/')[-1].strip('.jpg')
+        q_target_filename = episode[1].replace('/images', '/labels', 1)
+        q_target_filename = q_target_filename.replace('.jpg', '.npy')
+        q_target = np.load(q_target_filename)
+
+        # s_pred_filename = episode[0].split('/')[-1].strip('.jpg')
+        s_target_filename = episode[0].replace('/images', '/labels', 1)
+        s_target_filename = s_target_filename.replace('.jpg', '.npy')
+        s_target = np.load(s_target_filename)
+
+        before_filename = f'output/{episode[2]}/{q_pred_filename}_{episode[2]}.npy'
+        after_filename = f'output/{episode[3]}/{q_pred_filename}_{episode[3]}.npy'
+        before = np.load(before_filename)
+        after = np.load(after_filename)
+        axs[i,0].imshow(s_img)
+        axs[i,0].imshow(s_target, cmap=cmap, alpha=alpha)
+        axs[i,0].axis('off')
+        
+        axs[i,1].imshow(q_img)
+        axs[i,1].imshow(q_target, cmap=cmap, alpha=alpha)
+        axs[i,1].axis('off')
+
+        axs[i,2].imshow(q_img)
+        axs[i,2].imshow(before, cmap=cmap, alpha=alpha)
+        axs[i,2].axis('off')
+
+        axs[i,3].imshow(q_img)
+        axs[i,3].imshow(after, cmap=cmap, alpha=alpha)
+        axs[i,3].axis('off')
+    # for j in range(4):
+    #     axs[0, j].text(0.5, 1.1, f'{column_text[j]}', ha='center', va='center', transform=axs[0, j].transAxes, fontsize=font_size)
+    
+    # Adjust layout for better spacing
+    plt.subplots_adjust(hspace=0.01, wspace=0.01)
+    img_filename = f'output/qualitative/negative_notitle.pdf'
+    fig.savefig(img_filename, bbox_inches='tight', pad_inches=0.01, dpi=dpi)
+    plt.close()
+
+
+def draw_arch_masks():
+    """
+    draw masks for the arch figure
+    """
+    colors = ['darkgray', 'lime']
+    cmap = ListedColormap(colors)
+    alpha = 1
+    files = ('/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302793771607630.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300491621773474.jpg',
+        'fs_6', 'fs_10')
+    q_pred_filename = files[1].split('/')[-1].strip('.jpg')
+    before_filename = f'output/{files[2]}/{q_pred_filename}_{files[2]}.npy'
+    after_filename = f'output/{files[3]}/{q_pred_filename}_{files[3]}.npy'
+    before = np.load(before_filename)
+    after = np.load(after_filename)
+    masks = [before, after]
+    for i in range(2):
+        fig, ax = plt.subplots()
+        ax.imshow(masks[i], cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/arch/pos_{i}.png'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+
+
+def save_individual():
+    colors = ['#00000000', 'lime']
+    cmap = ListedColormap(colors)
+    alpha = 0.7
+    pos_episodes = [
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303553135307543.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664301286559157841.jpg',
+        'fs_0', 'fs_6'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303504843058817.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300270528764717.jpg',
+        'fs_0','fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303553967347137.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300444693995945.jpg',
+        'fs_18','fs_10'),
+        ('/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302793771607630.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300491621773474.jpg',
+        'fs_6', 'fs_10'),
+        ('/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556085417260401.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300453480423920.jpg',
+        'fs_10', 'fs_16'),
+        ('/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556188158997051.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664301286426029913.jpg',
+        'fs_6', 'fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303453022932283.jpg',
+        '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661555923100682251.jpg',
+        'fs_18','fs_16'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303504976192228.jpg',
+        '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556164395643703.jpg',
+        'fs_16','fs_4')]
+    
+    for i, episode in enumerate(pos_episodes):
+        q_img = plt.imread(episode[1])
+        s_img = plt.imread(episode[0])
+        q_pred_filename = episode[1].split('/')[-1].strip('.jpg')
+        q_target_filename = episode[1].replace('/images', '/labels', 1)
+        q_target_filename = q_target_filename.replace('.jpg', '.npy')
+        q_target = np.load(q_target_filename)
+
+        # s_pred_filename = episode[0].split('/')[-1].strip('.jpg')
+        s_target_filename = episode[0].replace('/images', '/labels', 1)
+        s_target_filename = s_target_filename.replace('.jpg', '.npy')
+        s_target = np.load(s_target_filename)
+
+        before_filename = f'output/{episode[2]}/{q_pred_filename}_{episode[2]}.npy'
+        after_filename = f'output/{episode[3]}/{q_pred_filename}_{episode[3]}.npy'
+        before = np.load(before_filename)
+        after = np.load(after_filename)
+        # Create a sample figure
+        fig, ax = plt.subplots()
+        ax.imshow(s_img)
+        ax.imshow(s_target, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/pos_{i}_0.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+        
+        fig, ax = plt.subplots()
+        ax.imshow(q_img)
+        ax.imshow(q_target, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/pos_{i}_1.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+
+        fig, ax = plt.subplots()
+        ax.imshow(q_img)
+        ax.imshow(before, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/pos_{i}_2.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+        
+        fig, ax = plt.subplots()
+        ax.imshow(q_img)
+        ax.imshow(after, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/pos_{i}_3.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+
+    
+    neg_episodes = [
+        ('/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556043714904062.jpg',
+         '/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303504343839638.jpg',
+         'fs_6', 'fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303450227214090.jpg',
+         '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556009267979376.jpg',
+         'fs_4','fs_16'),
+        ('/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302793638480656.jpg',
+         '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556122859590761.jpg',
+         'fs_4', 'fs_18'),
+        ('/mnt/hdd/segmentation_indoor_images/erb/challenging/images/1664303451591746561.jpg',
+         '/mnt/hdd/segmentation_indoor_images/woh/challenging/images/1664302839501178734.jpg',
+         'fs_6','fs_10')]
+    for i, episode in enumerate(neg_episodes):
+        q_img = plt.imread(episode[1])
+        s_img = plt.imread(episode[0])
+        q_pred_filename = episode[1].split('/')[-1].strip('.jpg')
+        q_target_filename = episode[1].replace('/images', '/labels', 1)
+        q_target_filename = q_target_filename.replace('.jpg', '.npy')
+        q_target = np.load(q_target_filename)
+
+        # s_pred_filename = episode[0].split('/')[-1].strip('.jpg')
+        s_target_filename = episode[0].replace('/images', '/labels', 1)
+        s_target_filename = s_target_filename.replace('.jpg', '.npy')
+        s_target = np.load(s_target_filename)
+
+        before_filename = f'output/{episode[2]}/{q_pred_filename}_{episode[2]}.npy'
+        after_filename = f'output/{episode[3]}/{q_pred_filename}_{episode[3]}.npy'
+        before = np.load(before_filename)
+        after = np.load(after_filename)
+        # Create a sample figure
+        fig, ax = plt.subplots()
+        ax.imshow(s_img)
+        ax.imshow(s_target, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/neg_{i}_0.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+        
+        fig, ax = plt.subplots()
+        ax.imshow(q_img)
+        ax.imshow(q_target, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/neg_{i}_1.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+
+        fig, ax = plt.subplots()
+        ax.imshow(q_img)
+        ax.imshow(before, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/neg_{i}_2.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+        
+        fig, ax = plt.subplots()
+        ax.imshow(q_img)
+        ax.imshow(after, cmap=cmap, alpha=alpha)
+        ax.axis('off')
+        img_filename = f'output/qualitative/neg_{i}_3.pdf'
+        plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0)
+        plt.close(fig)
+
 
 def draw_arch_cpc():
     q_img = '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556141830365889.jpg'
@@ -479,9 +797,13 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        'Pytorch SegFormer Models training and evaluation script', parents=[get_argparser()])
-    args = parser.parse_args()
-    main(args)
+    # parser = argparse.ArgumentParser(
+    #     'Pytorch SegFormer Models training and evaluation script', parents=[get_argparser()])
+    # args = parser.parse_args()
+    # main(args)
     # draw_qual()
     # draw_arch_cpc()
+    # get_yellow()
+    draw_qual_0304()
+    # save_individual()
+    # draw_arch_masks()
