@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from fnmatch import fnmatch
 from scipy.interpolate import interp1d
+from matplotlib.colors import ListedColormap
 
 
 def list_dirs(folder):
@@ -281,10 +282,10 @@ def find_crop_degrees():
     find crop degrees of laser to match its image
     read mapping csv files, draw their images
     """
+    dpi = 200
     scenes = ['erb', 'uc', 'wh']
     sector_left = -45 #-135
     sector_right = 45 # 135
-    degrees = list(range(sector_left,sector_right,10))
     angle_min = -27
     angle_max = 36
     angle_rad_min = np.deg2rad(angle_min)
@@ -307,22 +308,22 @@ def find_crop_degrees():
 
                 fig, axes = plt.subplots(2, 2)
                 axes[0,0].imshow(img_data)
-                axes[0,0].set_title(f"{row['img']}")
+                axes[0,0].figure.dpi = dpi
+                # axes[0,0].set_title(f"{row['img']}")
                 axes[0,0].axis('off')
-                
-                axes[1,0] = plt.subplot(212, projection='polar')
-                # Create polar plot
+
+                axes[1,0] = plt.subplot(223, projection='polar')
                 axes[1,0].plot(angles, vector)
-                # Add lines at 0 and 90 degrees
-                axes[1,0].plot([angle_rad_max, angle_rad_max], [0, 6], color='red', linestyle='--')  # Line at 0 degrees
-                axes[1,0].plot([angle_rad_min, angle_rad_min], [0, 6], color='blue', linestyle='--')  # Line at 90 degrees
+                axes[1,0].plot([angle_rad_max, angle_rad_max], [0, 5.1], color='red', linestyle='--')
+                axes[1,0].plot([angle_rad_min, angle_rad_min], [0, 5.1], color='blue', linestyle='--')
                 axes[1,0].set_thetamin(sector_left)
                 axes[1,0].set_thetamax(sector_right)
                 axes[1,0].set_theta_zero_location('N')
-                axes[1,0].set_title(f"{row['laser']}",loc='center', pad=-30)
-                axes[1,0].set_xticks(np.deg2rad(degrees))  # Convert degrees to radians
-                axes[1,0].set_xticklabels(degrees)
-                
+                # axes[1,0].set_xlabel(f"{row['laser']}")
+                axes[1,0].set_xticks(np.pi/180. * np.linspace(sector_left, sector_right, 10, endpoint=False))
+                # axes[1,0].set_xticklabels(degrees)
+                axes[1,0].figure.axes[2].set_axis_off()
+
                 cropped_vector = vector[int(min_pct* len(vector)):int(max_pct*len(vector))][::-1]
                 x_original = np.linspace(0, 1, len(cropped_vector)) # x-coordinates for original data
                 f = interp1d(x_original, cropped_vector)
@@ -330,13 +331,202 @@ def find_crop_degrees():
                 interp_vector = f(x_new)
                 tiled_vector = np.tile(interp_vector, (img_data.shape[0],1))
                 axes[0,1].imshow(img_data)
-                axes[0,1].imshow(tiled_vector, cmap='autumn', alpha=0.45)
+                axes[0,1].imshow(tiled_vector, cmap='autumn', vmin=0, vmax=5, alpha=0.45)
+                axes[0,1].figure.dpi = dpi
                 axes[0,1].axis('off')
-                axes[0,1].set_title(f"{angle_min}~{angle_max}",loc='center', pad=-30)
+                # axes[0,1].set_xlabel(f"{angle_min}~{angle_max}")
+
+                axes[1,1].axis('off')
                 
                 idx = f'{img_basename}_{laser_basename}'
-                plt.savefig(f"output/depth/{idx}.png")
+                plt.subplots_adjust(hspace=0.01, wspace=0.01)
+                plt.savefig(f"output/depth/{idx}.png",bbox_inches='tight', pad_inches=0.01, dpi=dpi)
                 plt.close(fig)
+
+
+def draw_individual_depth():
+    """
+    From mapping tables, draw RGB and depth respectively
+    """
+    dpi = 200
+    scenes = ['erb', 'uc', 'wh']
+    sector_left = -45 #-135
+    sector_right = 45 # 135
+    angle_min = -27
+    angle_max = 36
+    angle_rad_min = np.deg2rad(angle_min)
+    angle_rad_max = np.deg2rad(angle_max)
+    min_pct = (angle_min+45)/90  # percentile for cropping
+    max_pct = (angle_max+45)/90
+    for sc in scenes:
+        csv_file = f'output/{sc}_laser_mapping.csv'
+        df = pd.read_csv(csv_file)
+        for i, row in df.iterrows():
+            img_basename = os.path.splitext(os.path.basename(row['img']))[0]
+            laser_basename = os.path.splitext(os.path.basename(row['laser']))[0]
+            img_data = plt.imread(row['img'])
+
+            with open(row['laser'], 'rb') as f:
+                data = pickle.load(f)
+
+                vector = np.array(data['ranges'][::-1])[540:900]
+                angles = np.linspace(np.deg2rad(sector_left), np.deg2rad(sector_right), len(vector), endpoint=False)
+
+                fig1, ax1 = plt.subplots()
+                ax1.imshow(img_data)
+                ax1.figure.dpi = dpi
+                ax1.axis('off')
+                plt.savefig(f'output/proposal/{img_basename}_rgb.png', bbox_inches='tight', pad_inches=0)
+                plt.close(fig1)
+
+                fig2, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+                ax.plot(angles, vector)
+                ax.plot([angle_rad_max, angle_rad_max], [0, 5.1], color='red', linestyle='--')
+                ax.plot([angle_rad_min, angle_rad_min], [0, 5.1], color='blue', linestyle='--')
+                ax.set_thetamin(sector_left)
+                ax.set_thetamax(sector_right)
+                ax.set_theta_zero_location('N')
+                # ax.set_xlabel(f"{row['laser']}")
+                ax.set_xticks(np.pi/180. * np.linspace(sector_left, sector_right, 10, endpoint=False))
+                # ax.set_xticklabels(degrees)
+                # ax.figure.axes[0].set_axis_off()
+                plt.savefig(f'output/proposal/{img_basename}_laser.png', bbox_inches='tight', pad_inches=0)
+                plt.close(fig2)
+
+
+def indoor_trav_example():
+    """
+    draw a 3*5 figure for trav examples
+    """
+    path = f'data/examples'
+    dpi = 300
+    image_list = glob(os.path.join(path, '*'))
+    fig, axs = plt.subplots(3, 5, figsize=(15, 7))
+
+    # Flatten the axs array to easily iterate over it
+    axs = axs.flatten()
+
+    # Iterate over each image path and corresponding axis object
+    for i, (image_path, ax) in enumerate(zip(image_list, axs)):
+        # Load and plot the image
+        image = plt.imread(image_path)
+        ax.imshow(image)
+        ax.figure.dpi = dpi
+        ax.axis('off')  # Turn off axis labels
+
+        # Set title if needed (optional)
+        # ax.set_title(f'Image {i+1}')
+
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+
+    # Show the plot
+    plt.savefig(f'output/examples/example.png', bbox_inches='tight', pad_inches=0)
+
+
+def fss_example():
+    """
+    draw img and mask for FSS example
+    """
+    dpi = 300
+    colors = ['darkgray', 'lime']
+    cmap = ListedColormap(colors)
+    imgs = ['/mnt/hdd/segmentation_indoor_images/uc/positive/images/1661556213386775009.jpg',
+            '/mnt/hdd/segmentation_indoor_images/uc/challenging/images/1661556118033713572.jpg']
+    
+    for img in imgs:
+        img_basename = os.path.splitext(os.path.basename(img))[0]
+        mask = img.replace('/images/', '/labels/').replace('.jpg', '.npy')
+        mask_data = np.load(mask)
+        img_data = plt.imread(img)
+        fig1, ax1 = plt.subplots()
+        ax1.imshow(img_data)
+        ax1.figure.dpi = dpi
+        ax1.axis('off')
+        plt.savefig(f'output/examples/{img_basename}_rgb.png', bbox_inches='tight', pad_inches=0)
+        plt.close(fig1)
+    
+        fig2, ax2 = plt.subplots()
+        ax2.imshow(mask_data, cmap=cmap)
+        ax2.figure.dpi = dpi
+        ax2.axis('off')
+        plt.savefig(f'output/examples/{img_basename}_mask.png', bbox_inches='tight', pad_inches=0)
+        plt.close(fig2)
+
+
+def draw_existing_fss():
+    """
+    draw existing FSS methods fails
+    """
+    episode = [
+        '/mnt/hdd/segmentation_indoor_images/wh/challenging/images/1664302672125608198.jpg',
+        '/mnt/hdd/segmentation_indoor_images/elb/challenging/images/1664300491521946661.jpg',
+        'fs_6', 'fs_10']  # s, q, before, after
+
+    dpi = 300
+    alpha = 0.7
+    colors = ['#00000000', 'lime']
+    cmap = ListedColormap(colors)
+    q_img = plt.imread(episode[1])
+    s_img = plt.imread(episode[0])
+    q_pred_filename = episode[1].split('/')[-1].strip('.jpg')
+    q_target_filename = episode[1].replace('/images', '/labels', 1)
+    q_target_filename = q_target_filename.replace('.jpg', '.npy')
+    q_target = np.load(q_target_filename)
+
+    # s_pred_filename = episode[0].split('/')[-1].strip('.jpg')
+    s_target_filename = episode[0].replace('/images', '/labels', 1)
+    s_target_filename = s_target_filename.replace('.jpg', '.npy')
+    s_target = np.load(s_target_filename)
+
+    before_filename = f'output/{episode[2]}/{q_pred_filename}_{episode[2]}.npy'
+    after_filename = f'output/{episode[3]}/{q_pred_filename}_{episode[3]}.npy'
+    before = np.load(before_filename)
+    after = np.load(after_filename)
+    # Create a sample figure
+    fig, axs = plt.subplots(2,3, figsize=(8, 4), dpi=dpi)  # w,h
+    axs[0,0].imshow(s_img)
+    # axs[0].imshow(s_target, cmap=cmap, alpha=alpha)
+    axs[0,0].set_title(f's_img')
+    axs[0,0].figure.dpi = dpi
+    axs[0,0].axis('off')
+    
+    axs[0,1].imshow(s_img)
+    axs[0,1].imshow(s_target, cmap=cmap, alpha=alpha)
+    axs[0,1].set_title(f's_label')
+    axs[0,1].figure.dpi = dpi
+    axs[0,1].axis('off')
+
+    axs[0,2].axis('off')
+
+    axs[1,0].imshow(q_img)
+    axs[1,0].set_title(f'q_img')
+    axs[1,0].figure.dpi = dpi
+    axs[1,0].axis('off')
+
+    axs[1,1].imshow(q_img)
+    axs[1,1].imshow(q_target, cmap=cmap, alpha=alpha)
+    axs[1,1].set_title(f'q_label')
+    axs[1,1].axis('off')
+    axs[1,1].figure.dpi = dpi
+
+    axs[1,2].imshow(q_img)
+    axs[1,2].imshow(before, cmap=cmap, alpha=alpha)
+    axs[1,2].set_title(f'Before')
+    axs[1,2].axis('off')
+    axs[1,2].figure.dpi = dpi
+
+    img_filename = f'output/examples/before_after.png'
+    plt.savefig(img_filename, bbox_inches='tight',pad_inches=0.0, dpi=dpi)
+    plt.close(fig)
+
+    fig1, ax1 = plt.subplots()
+    ax1.imshow(q_img)
+    ax1.imshow(after, cmap=cmap, alpha=alpha)
+    ax1.figure.dpi = dpi
+    ax1.axis('off')
+    plt.savefig(f'output/examples/q_after.png', bbox_inches='tight', pad_inches=0)
+    plt.close(fig1)
 
 
 if __name__ == '__main__':
@@ -349,3 +539,7 @@ if __name__ == '__main__':
     # plot_labels()
     # create_trav_csv()
     find_crop_degrees()
+    # draw_individual_depth()
+    # indoor_trav_example()
+    # fss_example()
+    # draw_existing_fss()
