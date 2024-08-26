@@ -343,6 +343,8 @@ def find_crop_degrees():
                 axes[0,1].plot([img_width, 0], [0, img_height], color='green', linewidth=0.9)
                 axes[0,1].figure.dpi = dpi
                 axes[0,1].axis('off')
+                idx = f'{img_basename}_{laser_basename}'
+                np.save(f'output/1d_2d/{idx}_1d.npy', interp_vector)
 
                 heatmap = np.zeros((rgb_image.shape[0], interp_vector.size))
                 normed_depth = interp_vector / 5.0
@@ -350,13 +352,14 @@ def find_crop_degrees():
                 num_ones = (normed_depth * rgb_image.shape[0]).astype(np.int32)
                 for i in range(normed_depth.size):
                     heatmap[-num_ones[i]:, i] = 1
-                
+
+                np.save(f'output/1d_2d/{idx}_2d.npy', heatmap)
                 axes[1,1].imshow(rgb_image)
                 axes[1,1].imshow(heatmap, cmap='autumn', alpha=0.4)
                 axes[1,1].figure.dpi = dpi
                 axes[1,1].axis('off')
                 
-                idx = f'{img_basename}_{laser_basename}'
+                
                 plt.subplots_adjust(hspace=0.01, wspace=0.01)
                 plt.savefig(f"output/depth/{idx}.png",bbox_inches='tight', pad_inches=0.01, dpi=dpi)
                 plt.close(fig)
