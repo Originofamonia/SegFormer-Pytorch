@@ -286,8 +286,11 @@ def find_crop_degrees():
     scenes = ['erb', 'uc', 'wh']
     sector_left = -45 #-135
     sector_right = 45 # 135
-    angle_min = -27
+    angle_min = -26
     angle_max = 36
+    # scanner_fov_rad = np.deg2rad(angle_max - angle_min)
+    # focal_length = 800  # in pixels
+    # principal_point = (320, 240)  # center of the image (img_width/2, img_height/2)
     angle_rad_min = np.deg2rad(angle_min)
     angle_rad_max = np.deg2rad(angle_max)
     min_pct = (angle_min+45)/90  # percentile for cropping
@@ -298,7 +301,9 @@ def find_crop_degrees():
         for i, row in df.iterrows():
             img_basename = os.path.splitext(os.path.basename(row['img']))[0]
             laser_basename = os.path.splitext(os.path.basename(row['laser']))[0]
-            img_data = plt.imread(row['img'])
+            rgb_image = plt.imread(row['img'])
+            img_width = rgb_image.shape[1]
+            img_height = rgb_image.shape[0]
 
             with open(row['laser'], 'rb') as f:
                 data = pickle.load(f)
@@ -307,7 +312,9 @@ def find_crop_degrees():
                 angles = np.linspace(np.deg2rad(sector_left), np.deg2rad(sector_right), len(vector), endpoint=False)
 
                 fig, axes = plt.subplots(2, 2)
-                axes[0,0].imshow(img_data)
+                axes[0,0].imshow(rgb_image)
+                axes[0,0].plot([0, img_width], [0, img_height], color='green', linewidth=0.9)
+                axes[0,0].plot([img_width, 0], [0, img_height], color='green', linewidth=0.9)
                 axes[0,0].figure.dpi = dpi
                 # axes[0,0].set_title(f"{row['img']}")
                 axes[0,0].axis('off')
@@ -324,18 +331,29 @@ def find_crop_degrees():
                 # axes[1,0].set_xticklabels(degrees)
                 axes[1,0].figure.axes[2].set_axis_off()
 
-                cropped_vector = vector[int(min_pct* len(vector)):int(max_pct*len(vector))][::-1]
-                x_original = np.linspace(0, 1, len(cropped_vector)) # x-coordinates for original data
-                f = interp1d(x_original, cropped_vector)
-                x_new = np.linspace(0, 1, img_data.shape[1]) # x-coordinates for new data
+                depth_vector = vector[int(min_pct* len(vector)):int(max_pct*len(vector))][::-1]
+                x_original = np.linspace(0, 1, len(depth_vector)) # x-coordinates for original data
+                f = interp1d(x_original, depth_vector)
+                x_new = np.linspace(0, 1, rgb_image.shape[1]) # x-coordinates for new data
                 interp_vector = f(x_new)
-                tiled_vector = np.tile(interp_vector, (img_data.shape[0],1))
-                axes[0,1].imshow(img_data)
+                tiled_vector = np.tile(interp_vector, (rgb_image.shape[0],1))
+                axes[0,1].imshow(rgb_image)
                 axes[0,1].imshow(tiled_vector, cmap='autumn', vmin=0, vmax=5, alpha=0.45)
+                axes[0,1].plot([0, img_width], [0, img_height], color='green', linewidth=0.9)
+                axes[0,1].plot([img_width, 0], [0, img_height], color='green', linewidth=0.9)
                 axes[0,1].figure.dpi = dpi
                 axes[0,1].axis('off')
-                # axes[0,1].set_xlabel(f"{angle_min}~{angle_max}")
 
+                heatmap = np.zeros((rgb_image.shape[0], interp_vector.size))
+                normed_depth = interp_vector / 5.0
+                normed_depth[normed_depth < 1.0] * 1.8
+                num_ones = (normed_depth * rgb_image.shape[0]).astype(np.int32)
+                for i in range(normed_depth.size):
+                    heatmap[-num_ones[i]:, i] = 1
+                
+                axes[1,1].imshow(rgb_image)
+                axes[1,1].imshow(heatmap, cmap='autumn', alpha=0.4)
+                axes[1,1].figure.dpi = dpi
                 axes[1,1].axis('off')
                 
                 idx = f'{img_basename}_{laser_basename}'
